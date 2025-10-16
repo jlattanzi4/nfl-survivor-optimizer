@@ -51,8 +51,8 @@ The app uses the **Hungarian Algorithm** (linear sum assignment) to solve the as
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/nfl_survivor_optimizer.git
-cd nfl_survivor_optimizer
+git clone https://github.com/jlattanzi4/nfl-survivor-optimizer.git
+cd nfl-survivor-optimizer
 ```
 
 2. Install dependencies:
@@ -114,13 +114,15 @@ nfl_survivor_optimizer/
 - **Spread-to-Probability Conversion**: `P(win) = 1 / (1 + 10^(spread/14))`
 - **Moneyline-to-Probability**: Handles favorite vs. underdog calculations
 
-## Screenshots
-
-*Add screenshots here after deployment*
-
 ## Live Demo
 
-*Add Streamlit Cloud URL here after deployment*
+**Try it now:** [https://nfl-survivor-optimizer.streamlit.app/](https://nfl-survivor-optimizer.streamlit.app/)
+
+No installation required - just visit the link and start optimizing your picks!
+
+## Screenshots
+
+*Screenshots coming soon*
 
 ## Future Enhancements
 
