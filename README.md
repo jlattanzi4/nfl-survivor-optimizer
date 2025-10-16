@@ -122,7 +122,9 @@ No installation required - just visit the link and start optimizing your picks!
 
 ## Screenshots
 
-*Screenshots coming soon*
+![NFL Survivor Optimizer Demo](images/demo.png)
+
+*Interactive interface showing optimal pick recommendations with complete season outlook*
 
 ## Future Enhancements
 
