@@ -16,7 +16,6 @@ from optimizer.pool_calculator import PoolCalculator
 # Page configuration
 st.set_page_config(
     page_title="NFL Survivor Pool Optimizer",
-    page_icon="🏈",
     layout="wide",
     initial_sidebar_state="expanded"
 )
