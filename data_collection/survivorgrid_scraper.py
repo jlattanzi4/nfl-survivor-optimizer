@@ -115,13 +115,17 @@ class SurvivorGridScraper:
             print(f"Error fetching {url}: {e}")
             return None
 
-    def scrape_grid_data(self) -> pd.DataFrame:
+    def scrape_grid_data(self, current_week: Optional[int] = None) -> pd.DataFrame:
         """
         Scrape the main grid data from SurvivorGrid.
+
+        Args:
+            current_week: Current week to start from (defaults to config.CURRENT_WEEK)
 
         Returns:
             DataFrame with columns: week, team, opponent, win_pct, pick_pct, spread, ev
         """
+        current_week = current_week or config.CURRENT_WEEK
         soup = self.fetch_page()
 
         if not soup:
@@ -149,11 +153,13 @@ class SurvivorGridScraper:
             header_row = rows[0]
             headers = [th.get_text(strip=True) for th in header_row.find_all(['th', 'td'])]
 
-            # Find week column indices
+            # Find week column indices - only include current week and future weeks
             week_columns = {}
             for i, header in enumerate(headers):
                 if header.isdigit():
-                    week_columns[int(header)] = i
+                    week_num = int(header)
+                    if week_num >= current_week:
+                        week_columns[week_num] = i
 
             # Find index of key columns
             team_col_idx = headers.index('Team') if 'Team' in headers else 3
@@ -172,6 +178,8 @@ class SurvivorGridScraper:
 
                 # Get team info
                 team_abbrev = cells[team_col_idx].get_text(strip=True)
+                # Remove (W) or (L) from team names (indicates past game results)
+                team_abbrev = team_abbrev.replace('(W)', '').replace('(L)', '').strip()
                 team_name = normalize_team_name_from_survivorgrid(team_abbrev)
 
                 # Get overall stats from the row - these apply to current week (week 7)
@@ -194,6 +202,10 @@ class SurvivorGridScraper:
 
                     # Skip BYE weeks
                     if not cell_text or cell_text.upper() == 'BYE':
+                        continue
+
+                    # Skip past game results that contain (W) or (L)
+                    if '(W)' in cell_text or '(L)' in cell_text:
                         continue
 
                     # Parse matchup format: "NYG-7" or "@HOU+0.5"
@@ -254,14 +266,17 @@ class SurvivorGridScraper:
 
         return df
 
-    def get_all_weeks_data(self) -> pd.DataFrame:
+    def get_all_weeks_data(self, current_week: Optional[int] = None) -> pd.DataFrame:
         """
         Get data for all remaining weeks in the season.
+
+        Args:
+            current_week: Current week to start from (defaults to config.CURRENT_WEEK)
 
         Returns:
             DataFrame with win probabilities for all teams and weeks
         """
-        df = self.scrape_grid_data()
+        df = self.scrape_grid_data(current_week=current_week)
 
         if df.empty:
             print("Warning: Failed to scrape SurvivorGrid, no data available")

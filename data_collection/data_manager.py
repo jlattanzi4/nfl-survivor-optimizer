@@ -38,7 +38,7 @@ class DataManager:
 
         # Get SurvivorGrid data for all weeks (primary source)
         print("Fetching data from SurvivorGrid...")
-        sg_data = self.sg_scraper.get_all_weeks_data()
+        sg_data = self.sg_scraper.get_all_weeks_data(current_week=current_week)
 
         # Get The Odds API data for current week (more accurate for near-term)
         odds_data = pd.DataFrame()
