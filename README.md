@@ -147,3 +147,4 @@ MIT License - feel free to use this for your own survivor pools!
 ---
 
 **Note**: This tool is for entertainment and educational purposes. Always do your own research before making picks. Past performance does not guarantee future results.
+
