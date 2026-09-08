@@ -6,6 +6,7 @@
 import { analyze } from './engine.js';
 
 const N_SIMS = 20000;
+const TOP_N = 7;
 const LAM_LABEL = { 0: 'Safest path', 0.5: 'Balanced', 1: 'Leverage', 1.5: 'Max leverage' };
 const $ = (sel, root = document) => root.querySelector(sel);
 const el = (tag, attrs = {}, children = []) => {
@@ -49,6 +50,7 @@ const state = {
   selected: null,      // abbr of the selected candidate
   result: null,
   view: 'call',
+  showAll: false,
 };
 const newLeague = (over = {}) => ({ id: `L${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: 'My pool', pool: 50, lives: 1, fieldStrikes: 0, myStrikes: 'auto', used: {}, ...over });
 const league = () => state.leagues.find((l) => l.id === state.leagueId) || state.leagues[0];
@@ -73,20 +75,28 @@ function loadPersisted() {
   state.leagueId = league().id;
   if (Number.isFinite(saved.week) && saved.week >= 1 && saved.week <= 18) state.week = saved.week;
 
-  // URL hash overrides the active league (shareable links)
+  // A link with a setup in the hash: reuse a matching league, or import it as a new one.
   const h = new URLSearchParams(location.hash.slice(1));
-  const L = league();
   if (h.get('w')) { const w = Number(h.get('w')); if (w >= 1 && w <= 18) state.week = w; }
-  if (h.get('pool')) { const v = Number(h.get('pool')); if (v >= 2) L.pool = Math.round(v); }
-  if (h.get('lives')) L.lives = Number(h.get('lives')) === 2 ? 2 : 1;
-  if (h.has('fs')) L.fieldStrikes = Math.max(0, Number(h.get('fs')) || 0);
-  if (h.has('ms')) L.myStrikes = h.get('ms') === 'auto' ? 'auto' : Math.min(1, Math.max(0, Number(h.get('ms')) || 0));
-  if (h.has('used')) {
-    L.used = {};
-    for (const pair of h.get('used').split(',').filter(Boolean)) {
+  if (h.has('pool') || h.has('used') || h.has('lives')) {
+    const incoming = {
+      pool: Math.max(2, Math.round(Number(h.get('pool')) || 50)),
+      lives: Number(h.get('lives')) === 2 ? 2 : 1,
+      fieldStrikes: Math.max(0, Number(h.get('fs')) || 0),
+      myStrikes: !h.has('ms') || h.get('ms') === 'auto' ? 'auto' : Math.min(1, Math.max(0, Number(h.get('ms')) || 0)),
+      used: {},
+    };
+    for (const pair of (h.get('used') || '').split(',').filter(Boolean)) {
       const [w, t] = pair.split(':');
-      if (state.teams.has(t)) L.used[Number(w)] = t;
+      if (state.teams.has(t)) incoming.used[Number(w)] = t;
     }
+    const same = (l) => l.pool === incoming.pool && l.lives === incoming.lives && l.fieldStrikes === incoming.fieldStrikes
+      && String(l.myStrikes) === String(incoming.myStrikes) && JSON.stringify(l.used) === JSON.stringify(incoming.used);
+    const match = state.leagues.find(same);
+    const fresh = !saved.leagues;              // first visit: the default league is still empty
+    if (match) state.leagueId = match.id;
+    else if (fresh) Object.assign(league(), incoming);
+    else { const L = newLeague({ ...incoming, name: `Shared setup ${state.leagues.length + 1}` }); state.leagues.push(L); state.leagueId = L.id; }
   }
   for (const l of state.leagues) for (const [w, t] of Object.entries(l.used)) if (!state.teams.has(t)) delete l.used[w];
 }
@@ -94,7 +104,7 @@ function loadPersisted() {
 function persist() {
   try { localStorage.setItem('survivor:v3', JSON.stringify({ week: state.week, leagueId: state.leagueId, leagues: state.leagues })); } catch { /* ignore */ }
   const L = league();
-  const used = Object.entries(L.used).filter(([w]) => Number(w) < state.week);
+  const used = Object.entries(L.used).filter(([w]) => Number(w) <= state.week);   // includes this week's lock
   const h = new URLSearchParams();
   h.set('w', state.week);
   h.set('pool', L.pool);
@@ -104,6 +114,7 @@ function persist() {
 }
 
 const usedList = () => Object.entries(league().used).filter(([w]) => Number(w) < state.week).map(([, t]) => t);
+const lockedPick = () => league().used[state.week] || null;
 
 /** Strikes I have taken so far: counted from recorded results unless overridden. */
 function recordedLosses() {
@@ -194,7 +205,10 @@ async function run() {
     const result = await runAnalysis(options);
     if (state.lastJob !== myJob) return;
     state.result = result;
-    if (!result.candidates.some((c) => c.team === state.selected)) state.selected = result.candidates[0]?.team ?? null;
+    if (!result.candidates.some((c) => c.team === state.selected)) {
+      const lock = lockedPick();
+      state.selected = result.candidates.some((c) => c.team === lock) ? lock : (result.candidates[0]?.team ?? null);
+    }
     renderAll();
   } catch (err) {
     showLoading(`Something went wrong: ${err.message}`, true);
@@ -257,7 +271,7 @@ function renderControls() {
   }
   wsel.value = state.week;
   const n = usedList().length;
-  $('#usedCount').textContent = `${n} team${n === 1 ? '' : 's'}`;
+  $('#usedCount').textContent = `${n} team${n === 1 ? '' : 's'}${lockedPick() ? ` · wk ${state.week} locked` : ''}`;
   $('#simNote').textContent = `${N_SIMS.toLocaleString()} seasons`;
 }
 
@@ -301,10 +315,19 @@ function renderGauntlet(cascade = false) {
       btn.setAttribute('aria-label', `Week ${w}: ${team ? `used ${state.teams.get(team).name}` : 'no pick recorded'}. Change`);
       btn.addEventListener('click', () => openPicker(w));
     } else if (isNow) {
-      team = cand?.team || null;
-      sub = team ? `${pct(cand.thisWeek.p, 0)} ${shortMatchup(cand.thisWeek)}` : 'This week';
-      btn.setAttribute('aria-label', `Week ${w}: this week's call${team ? `, ${state.teams.get(team).name}` : ''}`);
-      btn.addEventListener('click', () => $('#candList').scrollIntoView({ behavior: 'smooth', block: 'center' }));
+      const lock = lockedPick();
+      team = lock || cand?.team || null;
+      if (lock) {
+        const g = gameOf(w, lock);
+        sub = 'Locked in';
+        li.classList.add('is-locked');
+        li.append(el('span', { class: 'slot-lock', text: '🔒', 'aria-hidden': 'true' }));
+        if (g?.result) li.append(el('span', { class: `slot-result ${g.result}`, text: g.result === 'W' ? '✓' : g.result === 'L' ? '✗' : '–' }));
+      } else {
+        sub = team ? `${pct(cand.thisWeek.p, 0)} ${shortMatchup(cand.thisWeek)}` : 'This week';
+      }
+      btn.setAttribute('aria-label', `Week ${w}: ${lock ? `locked in ${state.teams.get(lock).name}` : "this week's call"}. Change`);
+      btn.addEventListener('click', () => openPicker(w));
     } else {
       const p = pathBy.get(w);
       team = p?.team || null;
@@ -330,12 +353,15 @@ function renderCandidates() {
   }
   list.append(el('li', { class: 'cand-head', html: '<span></span><span></span><span>Team</span><span class="hide-sm">Win</span><span>Public</span><span>Pool equity</span>' }));
   const maxEq = Math.max(...r.candidates.map((c) => c.equity));
-  r.candidates.forEach((c, i) => {
+  const selIdx = r.candidates.findIndex((c) => c.team === state.selected);
+  const shown = state.showAll ? r.candidates : r.candidates.filter((c, i) => i < TOP_N || i === selIdx);
+  shown.forEach((c) => {
+    const i = r.candidates.indexOf(c);
     const btn = el('button', { class: `cand${c.team === state.selected ? ' is-selected' : ''}`, type: 'button', 'aria-pressed': String(c.team === state.selected) });
     btn.append(
       el('span', { class: 'cand-rank', text: i + 1 }),
       logo(c.team, 34),
-      el('span', { class: 'cand-name' }, [el('b', { text: state.teams.get(c.team).nick }), el('span', { text: `${matchup(c.thisWeek)} ${spread(c.thisWeek.spread)}${c.lam > 0 ? ` · ${LAM_LABEL[c.lam]}` : ''}` })]),
+      el('span', { class: 'cand-name' }, [el('b', { text: `${state.teams.get(c.team).nick}${lockedPick() === c.team ? ' 🔒' : ''}` }), el('span', { text: `${matchup(c.thisWeek)} ${spread(c.thisWeek.spread)}${c.lam > 0 ? ` · ${LAM_LABEL[c.lam]}` : ''}` })]),
       el('span', { class: 'cand-num hide-sm', html: `${pct(c.thisWeek.p)}<small>this wk</small>` }),
       el('span', { class: 'cand-num', html: `${pct(c.thisWeek.pick)}<small>on it</small>` }),
       el('span', { class: 'cand-eq' }, [el('b', { text: times(c.equity * league().pool) }), el('span', { class: 'bar' }, el('i', { style: `--w:${(c.equity / maxEq) * 100}%` }))]),
@@ -343,6 +369,11 @@ function renderCandidates() {
     btn.addEventListener('click', () => { state.selected = c.team; renderAll(); });
     list.append(el('li', {}, btn));
   });
+  if (r.candidates.length > TOP_N) {
+    const more = el('button', { type: 'button', class: 'link show-more', text: state.showAll ? `Show top ${TOP_N}` : `Show all ${r.candidates.length} options` });
+    more.addEventListener('click', () => { state.showAll = !state.showAll; renderCandidates(); });
+    list.append(el('li', { class: 'cand-more' }, more));
+  }
 }
 
 function renderCall() {
@@ -375,11 +406,30 @@ function renderCall() {
         : stat('Win out', pct(c.winOut, 2), `${weeksLeft} straight`),
       stat('Pool equity', times(c.equity * L.pool), `${pct(c.equity, 1)} of the pot · ${pct(c.pWinOutright, 1)} outright`, true),
     ]),
+    lockRow(c),
     el('div', { class: 'charts' }, [
       chartCard('Chance you are still alive', survivalChart(state.result.weeks, c.curve)),
       chartCard(`Entries still alive (${L.pool.toLocaleString()} now${twoLives ? ', two lives' : ''})`, survivorsChart(state.result.weeks, state.result.survivors, L.pool)),
     ]),
   );
+}
+function lockRow(c) {
+  const lock = lockedPick();
+  const t = state.teams.get(c.team);
+  const row = el('div', { class: 'call-actions' });
+  if (lock === c.team) {
+    row.append(el('span', { class: 'locked-msg', html: `🔒 <b>${t.nick}</b> locked in for week ${state.week}. It saves here and counts as used next week.` }));
+    const change = el('button', { type: 'button', class: 'link', text: 'Unlock' });
+    change.addEventListener('click', () => { delete league().used[state.week]; scheduleRun(); });
+    row.append(change);
+  } else {
+    const b = el('button', { type: 'button', class: 'primary', text: lock ? `Switch lock to ${t.nick}` : `Lock in ${t.nick} for week ${state.week}` });
+    b.addEventListener('click', () => { league().used[state.week] = c.team; scheduleRun(); });
+    row.append(b);
+    if (lock) row.append(el('span', { class: 'locked-msg muted', text: `Currently locked: ${state.teams.get(lock).nick}` }));
+    else row.append(el('span', { class: 'locked-msg muted', text: 'Locking saves the pick in this browser.' }));
+  }
+  return row;
 }
 function stat(label, value, sub, flag = false) {
   return el('div', { class: 'stat' }, [el('div', { class: 'stat-label', text: label }), el('div', { class: `stat-value${flag ? ' flag' : ''}`, text: value }), el('div', { class: 'stat-sub', text: sub })]);
@@ -538,11 +588,12 @@ function hideTip() { $('#tooltip').hidden = true; }
 let pickerWeek = null;
 function openPicker(week) {
   pickerWeek = week;
-  $('#pickerTitle').textContent = `Week ${week}`;
+  $('#pickerTitle').textContent = week === state.week ? `Week ${week} · this week's pick` : `Week ${week}`;
+  $('#pickerQuestion').textContent = week === state.week ? 'Lock in the team you are playing this week.' : 'Which team did you use?';
   const grid = $('#pickerGrid');
   grid.replaceChildren();
   const L = league();
-  const takenBy = new Map(Object.entries(L.used).filter(([w]) => Number(w) !== week && Number(w) < state.week).map(([w, t]) => [t, Number(w)]));
+  const takenBy = new Map(Object.entries(L.used).filter(([w]) => Number(w) !== week && Number(w) <= state.week).map(([w, t]) => [t, Number(w)]));
   for (const t of state.teams.values()) {
     const b = el('button', { type: 'button', class: `pick-opt${L.used[week] === t.abbr ? ' is-current' : ''}${takenBy.has(t.abbr) ? ' is-taken' : ''}` });
     b.append(logo(t.abbr, 36), document.createTextNode(t.abbr));
@@ -550,6 +601,7 @@ function openPicker(week) {
     b.addEventListener('click', () => {
       for (const [w, tt] of Object.entries(L.used)) if (tt === t.abbr) delete L.used[w];
       L.used[week] = t.abbr;
+      if (week === state.week) state.selected = t.abbr;
       closePicker();
       scheduleRun();
     });
@@ -643,6 +695,12 @@ async function init() {
   $('#leagueDialog').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeLeagueDialog(); });
   $('#weekSelect').addEventListener('change', (e) => { state.week = Number(e.target.value); scheduleRun(); });
   $('#clearUsed').addEventListener('click', () => { league().used = {}; scheduleRun(); });
+  $('#copyLink').addEventListener('click', async (e) => {
+    const b = e.currentTarget;
+    try { await navigator.clipboard.writeText(location.href); b.textContent = 'Copied'; }
+    catch { b.textContent = 'Copy the address bar'; }
+    setTimeout(() => { b.textContent = 'Copy link'; }, 1800);
+  });
   $('#pickerClose').addEventListener('click', closePicker);
   $('#pickerClear').addEventListener('click', () => { delete league().used[pickerWeek]; closePicker(); scheduleRun(); });
   $('#picker').addEventListener('click', (e) => { if (e.target === e.currentTarget) closePicker(); });

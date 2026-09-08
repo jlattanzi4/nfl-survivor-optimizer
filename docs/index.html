@@ -37,7 +37,7 @@
         <h1 class="gauntlet-title"><span class="season" id="seasonLabel">2026</span> The gauntlet</h1>
         <div class="lives" id="lives" aria-live="polite"></div>
       </div>
-      <p class="gauntlet-hint" id="gauntletHint">Tap a past week to record what you used. Pick an option below and your path fills in.</p>
+      <p class="gauntlet-hint" id="gauntletHint">Pick an option below and lock it in. Tap any past week to record what you used.</p>
     </div>
     <div class="gauntlet-scroll">
       <ol class="slots" id="slots" aria-label="Weeks 1 through 18"></ol>
@@ -83,6 +83,7 @@
         <div class="control control-static control-right">
           <span class="control-label">Simulation</span>
           <span class="sim-note" id="simNote">20,000 seasons</span>
+          <button type="button" class="link" id="copyLink" title="Copies a link that carries this league's setup and picks">Copy link</button>
         </div>
       </div>
 
@@ -97,7 +98,7 @@
         <aside class="candidates">
           <div class="candidates-head">
             <h2>This week's options</h2>
-            <p class="muted">Every available team, ranked by simulated pool equity.</p>
+            <p class="muted">Ranked by simulated pool equity.</p>
           </div>
           <ol class="cand-list" id="candList"></ol>
         </aside>
@@ -166,6 +167,7 @@
           <li>The field is assumed not to be constrained by teams it already used. In practice the public burns its favorites early, which makes late-season contrarian picks slightly more valuable than shown.</li>
           <li>Ties are treated as losses, which is the rule in most pools.</li>
           <li>Two-lives pools are simulated with a strike count for you and for every entry in the field; an entry is out on its second loss. Enter how many entries are already on their last life and the model accounts for a field that thins more slowly.</li>
+          <li>Your leagues, picks and locks are saved in this browser only. The Copy link button carries a league's full setup, so use it to move between devices or to share.</li>
           <li>One entry per person. Multi-entry strategy is a different problem.</li>
         </ul>
 
@@ -192,7 +194,7 @@
         <h3 id="pickerTitle">Week 1</h3>
         <button type="button" class="icon-btn" id="pickerClose" aria-label="Close">×</button>
       </div>
-      <p class="muted small">Which team did you use?</p>
+      <p class="muted small" id="pickerQuestion">Which team did you use?</p>
       <div class="picker-grid" id="pickerGrid"></div>
       <div class="picker-foot">
         <button type="button" class="link" id="pickerClear">No pick this week</button>
