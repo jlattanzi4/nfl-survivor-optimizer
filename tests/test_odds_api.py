@@ -41,3 +41,13 @@ def test_to_games_assigns_week():
     assert {r["team"] for r in rows} == {"DET", "NO"}
     assert all(r["week"] == 1 for r in rows)
     assert sum(r["p"] for r in rows) == pytest.approx(1.0)
+
+
+def test_merge_requires_two_books():
+    from pipeline.build import merge_odds
+    games = [{"week": 1, "team": "DET", "opp": "NO", "p": 0.7, "result": None, "src": "spread"},
+             {"week": 1, "team": "NO", "opp": "DET", "p": 0.3, "result": None, "src": "spread"}]
+    lone = [{"week": 1, "team": "DET", "opp": "NO", "p": 0.8, "ml": -400, "books": 1}]
+    assert merge_odds(games, lone) == 0 and games[0]["src"] == "spread"
+    two = [{"week": 1, "team": "DET", "opp": "NO", "p": 0.8, "ml": -400, "books": 2}]
+    assert merge_odds(games, two) == 1 and games[0]["src"] == "market" and games[0]["p"] == 0.8

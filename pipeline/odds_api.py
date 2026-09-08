@@ -77,6 +77,7 @@ def fetch(api_key: str | None = None, season: int | None = None) -> dict:
     return {
         "events": resp.json(),
         "remaining": resp.headers.get("x-requests-remaining"),
+        "cost": resp.headers.get("x-requests-last"),
         "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
 

@@ -23,11 +23,16 @@ def log(msg: str) -> None:
     print(f"[build] {msg}", file=sys.stderr)
 
 
+MIN_BOOKS = 2   # a lone book's look-ahead line is not a consensus
+
+
 def merge_odds(games: list[dict], odds_games: list[dict]) -> int:
     """Overwrite SurvivorGrid probabilities with consensus market lines where the matchup agrees."""
     idx = {(g["week"], g["team"]): g for g in games}
     applied = 0
     for og in odds_games:
+        if og["books"] < MIN_BOOKS:
+            continue
         g = idx.get((og["week"], og["team"]))
         if g is None or g["opp"] != og["opp"] or g["result"] is not None:
             log(f"odds row not matched: wk{og['week']} {og['team']} vs {og['opp']}")
@@ -77,9 +82,11 @@ def build(html: str, use_odds: bool, now: datetime | None = None) -> dict:
                 "events": len(raw["events"]),
                 "applied": applied,
                 "credits_remaining": raw["remaining"],
+                "credits_last_call": raw["cost"],
                 "books": odds_api.BOOKS,
             }
-            log(f"odds api: {len(raw['events'])} events, {applied} team-weeks updated, {raw['remaining']} credits left")
+            log(f"odds api: {len(raw['events'])} events, {applied} team-weeks updated, "
+                f"call cost {raw['cost']} credits, {raw['remaining']} left")
         except Exception as exc:  # network / quota / key problems must not break the build
             log(f"odds api skipped: {exc}")
             sources["odds_api"] = {"error": str(exc)}
