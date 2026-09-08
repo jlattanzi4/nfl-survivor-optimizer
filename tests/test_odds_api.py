@@ -49,5 +49,7 @@ def test_merge_requires_two_books():
              {"week": 1, "team": "NO", "opp": "DET", "p": 0.3, "result": None, "src": "spread"}]
     lone = [{"week": 1, "team": "DET", "opp": "NO", "p": 0.8, "ml": -400, "books": 1}]
     assert merge_odds(games, lone) == 0 and games[0]["src"] == "spread"
+    pinnacle_only = [{"week": 1, "team": "DET", "opp": "NO", "p": 0.75, "ml": -300, "books": 1, "sharp": True}]
+    assert merge_odds(games, pinnacle_only) == 1 and games[0]["p"] == 0.75
     two = [{"week": 1, "team": "DET", "opp": "NO", "p": 0.8, "ml": -400, "books": 2}]
     assert merge_odds(games, two) == 1 and games[0]["src"] == "market" and games[0]["p"] == 0.8

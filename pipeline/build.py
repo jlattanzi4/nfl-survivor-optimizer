@@ -23,7 +23,7 @@ def log(msg: str) -> None:
     print(f"[build] {msg}", file=sys.stderr)
 
 
-MIN_BOOKS = 2   # a lone book's look-ahead line is not a consensus
+MIN_BOOKS = 2   # a lone soft book's look-ahead line is not a consensus; a lone Pinnacle line is fine
 
 
 def merge_odds(games: list[dict], odds_games: list[dict]) -> int:
@@ -31,7 +31,7 @@ def merge_odds(games: list[dict], odds_games: list[dict]) -> int:
     idx = {(g["week"], g["team"]): g for g in games}
     applied = 0
     for og in odds_games:
-        if og["books"] < MIN_BOOKS:
+        if og["books"] < MIN_BOOKS and not og.get("sharp"):
             continue
         g = idx.get((og["week"], og["team"]))
         if g is None or g["opp"] != og["opp"] or g["result"] is not None:

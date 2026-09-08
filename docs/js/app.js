@@ -232,7 +232,7 @@ function renderStatus() {
   const parts = [];
   parts.push(`Lines as of <b>${relTime(state.data.generated_at)}</b>`);
   parts.push(`SurvivorGrid wk ${state.data.grid_week}`);
-  if (s.odds_api && !s.odds_api.error) parts.push(`market lines on ${s.odds_api.events} games`);
+  if (s.odds_api && !s.odds_api.error) parts.push(`market lines on ${Math.round((s.odds_api.applied || 0) / 2)} games`);
   else parts.push('market lines off');
   $('#status').innerHTML = parts.join(' · ');
   $('#footData').textContent = `Data ${new Date(state.data.generated_at).toLocaleString()} · ${state.data.games.length} team-weeks`;

@@ -56,7 +56,7 @@ def consensus(game: dict) -> dict | None:
     if den == 0:
         return None
     p_home = num / den
-    return {"home": home, "away": away, "p_home": p_home, "books": books}
+    return {"home": home, "away": away, "p_home": p_home, "books": books, "sharp": "pinnacle" in books}
 
 
 def fetch(api_key: str | None = None, season: int | None = None) -> dict:
@@ -99,6 +99,7 @@ def to_games(events: list[dict], season: int) -> list[dict]:
                 "p": p,
                 "ml": prob_to_american(p),
                 "books": len(c["books"]),
+                "sharp": c["sharp"],
                 "commence": ev["commence_time"],
             })
     return out
