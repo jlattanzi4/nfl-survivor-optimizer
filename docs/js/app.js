@@ -4,6 +4,7 @@
  * and the full grid.
  */
 import { analyze } from './engine.js';
+import * as sync from './sync.js';
 
 const N_SIMS = 20000;
 const TOP_N = 7;
@@ -101,7 +102,17 @@ function loadPersisted() {
   for (const l of state.leagues) for (const [w, t] of Object.entries(l.used)) if (!state.teams.has(t)) delete l.used[w];
 }
 
+const snapshots = new Map();      // league id -> serialized content, to detect edits
+const fingerprint = (l) => { const { updatedAt, ...rest } = l; return JSON.stringify(rest); };
+function seedSnapshots() { snapshots.clear(); for (const l of state.leagues) snapshots.set(l.id, fingerprint(l)); }
+
 function persist() {
+  const changed = [];
+  for (const l of state.leagues) {
+    const fp = fingerprint(l);
+    if (snapshots.get(l.id) !== fp) { l.updatedAt = new Date().toISOString(); snapshots.set(l.id, fp); changed.push(l.id); }
+  }
+  if (changed.length) sync.scheduleSave(changed, () => state.leagues);
   try { localStorage.setItem('survivor:v3', JSON.stringify({ week: state.week, leagueId: state.leagueId, leagues: state.leagues })); } catch { /* ignore */ }
   const L = league();
   const used = Object.entries(L.used).filter(([w]) => Number(w) <= state.week);   // includes this week's lock
@@ -656,9 +667,92 @@ function deleteLeague() {
   const L = state.leagues.find((l) => l.id === dialogLeagueId);
   if (!confirm(`Delete "${L.name}" and its recorded picks?`)) return;
   state.leagues = state.leagues.filter((l) => l.id !== dialogLeagueId);
+  snapshots.delete(dialogLeagueId);
+  if (sync.enabled()) sync.remove(dialogLeagueId).catch((err) => console.error(err));
   state.leagueId = state.leagues[0].id;
   $('#leagueDialog').hidden = true;
   scheduleRun();
+}
+
+/* --------------------------------------------------------------- account */
+let currentUser = null;
+let lastPull = 0;
+function renderAccount() {
+  const box = $('#account');
+  box.replaceChildren();
+  if (!sync.enabled()) return;
+  if (!currentUser) {
+    const b = el('button', { type: 'button', class: 'ghost account-btn', text: 'Sign in to sync' });
+    b.addEventListener('click', () => { $('#authDialog').hidden = false; $('#authSent').hidden = true; $('#authForm').hidden = false; $('#authEmail').focus(); });
+    box.append(b);
+    return;
+  }
+  const st = sync.getStatus();
+  const label = { saving: 'Saving…', synced: 'Synced', error: 'Sync failed', 'signed-out': 'Signed in' }[st] || 'Signed in';
+  box.append(
+    el('span', { class: `sync-dot ${st}`, 'aria-hidden': 'true' }),
+    el('span', { class: 'account-email', text: currentUser.email, title: label }),
+    el('span', { class: 'sync-label', text: label }),
+  );
+  const out = el('button', { type: 'button', class: 'link', text: 'Sign out' });
+  out.addEventListener('click', async () => { await sync.signOut(); currentUser = null; renderAccount(); });
+  box.append(out);
+}
+
+async function pullAndMerge(reason) {
+  if (!currentUser) return;
+  try {
+    const { merged, toPush } = await sync.pull(state.leagues);
+    state.leagues = merged.map((l) => newLeague(l));
+    if (!state.leagues.length) state.leagues = [newLeague()];
+    if (!league()) state.leagueId = state.leagues[0].id;
+    state.leagueId = league().id;
+    seedSnapshots();
+    await sync.push(state.leagues.filter((l) => toPush.includes(l.id)));
+    lastPull = Date.now();
+    try { localStorage.setItem('survivor:v3', JSON.stringify({ week: state.week, leagueId: state.leagueId, leagues: state.leagues })); } catch { /* ignore */ }
+    renderAccount();
+    if (reason !== 'focus' || toPush.length || merged.length !== state.leagues.length) scheduleRun(); else renderControls();
+  } catch (err) {
+    console.error('sync pull failed', err);
+    renderAccount();
+  }
+}
+
+function initAccount() {
+  if (!sync.init()) return;
+  sync.onStatus(renderAccount);
+  $('#authForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = $('#authEmail').value.trim();
+    const btn = $('#authSend');
+    btn.disabled = true;
+    try {
+      await sync.sendMagicLink(email);
+      $('#authForm').hidden = true;
+      $('#authSent').hidden = false;
+      $('#authSentTo').textContent = email;
+    } catch (err) {
+      $('#authError').textContent = err.message || 'Could not send the link.';
+      $('#authError').hidden = false;
+    } finally { btn.disabled = false; }
+  });
+  $('#authClose').addEventListener('click', () => { $('#authDialog').hidden = true; });
+  $('#authDialog').addEventListener('click', (e) => { if (e.target === e.currentTarget) $('#authDialog').hidden = true; });
+  sync.onAuth(async (event, s) => {
+    const was = currentUser?.id;
+    currentUser = s?.user || null;
+    renderAccount();
+    if (currentUser && currentUser.id !== was) { $('#authDialog').hidden = true; await pullAndMerge('sign-in'); }
+  });
+  sync.session().then(async (s) => {
+    currentUser = s?.user || null;
+    renderAccount();
+    if (currentUser) await pullAndMerge('load');
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && currentUser && Date.now() - lastPull > 60000) pullAndMerge('focus');
+  });
 }
 
 /* ------------------------------------------------------------------ tabs */
@@ -678,7 +772,9 @@ async function init() {
   state.calendarWeek = calendarWeek();
   state.week = state.calendarWeek;
   loadPersisted();
+  seedSnapshots();
   renderStatus();
+  initAccount();
 
   $('#poolSize').addEventListener('change', (e) => { const v = Math.round(Number(e.target.value)); if (v >= 2) { league().pool = v; scheduleRun(); } });
   $('#poolChips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { league().pool = Number(b.dataset.pool); scheduleRun(); } });
@@ -704,7 +800,7 @@ async function init() {
   $('#pickerClose').addEventListener('click', closePicker);
   $('#pickerClear').addEventListener('click', () => { delete league().used[pickerWeek]; closePicker(); scheduleRun(); });
   $('#picker').addEventListener('click', (e) => { if (e.target === e.currentTarget) closePicker(); });
-  document.addEventListener('keydown', (e) => { if (e.key !== 'Escape') return; if (!$('#picker').hidden) closePicker(); if (!$('#leagueDialog').hidden) closeLeagueDialog(); });
+  document.addEventListener('keydown', (e) => { if (e.key !== 'Escape') return; if (!$('#picker').hidden) closePicker(); if (!$('#leagueDialog').hidden) closeLeagueDialog(); $('#authDialog').hidden = true; });
   for (const b of document.querySelectorAll('.tab')) b.addEventListener('click', () => setView(b.dataset.tab));
 
   run();

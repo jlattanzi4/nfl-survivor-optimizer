@@ -396,3 +396,18 @@ tr.is-now td.wk { color: var(--flag); }
 .call-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 14px 0 2px; }
 .locked-msg { font-size: 13px; color: var(--chalk-2); }
 .locked-msg b { color: var(--flag); }
+
+/* ---------------------------------------------------------------- account */
+.account { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 12px; color: var(--chalk-3); }
+.account-btn { font-family: var(--body); font-size: 13px; padding: 6px 12px; }
+.account-email { color: var(--chalk-2); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--chalk-4); }
+.sync-dot.synced { background: var(--grass); }
+.sync-dot.saving { background: var(--flag); animation: pulse-dot 1s ease-in-out infinite; }
+.sync-dot.error { background: var(--ember); }
+@keyframes pulse-dot { 50% { opacity: 0.35; } }
+.auth-card { width: min(460px, 100%); }
+.auth-error { color: var(--ember); font-size: 13px; margin: 8px 0 0; }
+.sent-msg { margin: 14px 0 6px; }
+.sent-msg b { color: var(--flag); }
+@media (max-width: 640px) { .account { order: 2; } }

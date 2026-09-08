@@ -34,7 +34,13 @@ elimination, or two lives (an entry is out on its second loss). In two-lives
 mode the simulator tracks strikes for you and for the field, and your own
 strikes are counted automatically from the results of the picks you recorded.
 
-Everything runs in the browser. There is no backend.
+**Sync.** Optional magic-link email sign-in (Supabase Auth) syncs leagues
+across devices. Local storage stays the source of truth; changes are upserted
+to a `survivor_leagues` table protected by row-level security, and remote rows
+are merged in by last edit on sign-in and tab focus. Schema in
+`supabase/schema.sql`; client config in `docs/js/config.js`.
+
+Everything else runs in the browser. There is no app server.
 
 ## Architecture
 

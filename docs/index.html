@@ -23,6 +23,7 @@
       <span class="brand-sub">NFL pool optimizer</span>
     </div>
     <div class="status" id="status" aria-live="polite">Loading lines…</div>
+    <div class="account" id="account"></div>
     <nav class="tabs" aria-label="Views">
       <button class="tab is-active" data-tab="call" aria-pressed="true">The call</button>
       <button class="tab" data-tab="grid" aria-pressed="false">Grid</button>
@@ -167,7 +168,7 @@
           <li>The field is assumed not to be constrained by teams it already used. In practice the public burns its favorites early, which makes late-season contrarian picks slightly more valuable than shown.</li>
           <li>Ties are treated as losses, which is the rule in most pools.</li>
           <li>Two-lives pools are simulated with a strike count for you and for every entry in the field; an entry is out on its second loss. Enter how many entries are already on their last life and the model accounts for a field that thins more slowly.</li>
-          <li>Your leagues, picks and locks are saved in this browser only. The Copy link button carries a league's full setup, so use it to move between devices or to share.</li>
+          <li>Your leagues, picks and locks are saved in this browser. Sign in with an email link to sync them across devices; each account only sees its own leagues. The Copy link button carries a league's full setup for sharing.</li>
           <li>One entry per person. Multi-entry strategy is a different problem.</li>
         </ul>
 
@@ -251,8 +252,35 @@
     </form>
   </div>
 
+  <!-- Sign-in dialog -->
+  <div class="picker" id="authDialog" hidden role="dialog" aria-modal="true" aria-labelledby="authTitle">
+    <div class="picker-card auth-card">
+      <div class="picker-head">
+        <h3 id="authTitle">Sync across devices</h3>
+        <button type="button" class="icon-btn" id="authClose" aria-label="Close">×</button>
+      </div>
+      <form id="authForm">
+        <p class="muted small">Enter your email and we'll send a sign-in link. No password. Your leagues and picks then follow you to any device you sign in on.</p>
+        <label class="field">
+          <span class="control-label">Email</span>
+          <input type="email" id="authEmail" required autocomplete="email" placeholder="you@example.com">
+        </label>
+        <p class="auth-error" id="authError" hidden></p>
+        <div class="picker-foot league-foot">
+          <span class="grow"></span>
+          <button type="submit" class="primary" id="authSend">Send sign-in link</button>
+        </div>
+      </form>
+      <div id="authSent" hidden>
+        <p class="sent-msg">Link sent to <b id="authSentTo"></b>.</p>
+        <p class="muted small">Open it on this device and you're signed in. The link expires in an hour. Check spam if it doesn't show up in a minute.</p>
+      </div>
+    </div>
+  </div>
+
   <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>
