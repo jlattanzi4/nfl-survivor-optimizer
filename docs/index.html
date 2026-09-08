@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Survivor · NFL Survivor Pool Optimizer</title>
+  <meta name="description" content="Pick the right team every week. Hungarian-algorithm path search plus a Monte Carlo pool simulation, built on live market lines.">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#08130D">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2308130D'/%3E%3Cpath d='M8 24 L24 8' stroke='%23FFD23F' stroke-width='4' stroke-linecap='round'/%3E%3Cpath d='M8 8 L24 24' stroke='%23F0F4EC' stroke-width='4' stroke-linecap='round' opacity='.35'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <a class="skip" href="#call">Skip to this week's call</a>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">Survivor</span>
+      <span class="brand-sub">NFL pool optimizer</span>
+    </div>
+    <div class="status" id="status" aria-live="polite">Loading lines…</div>
+    <nav class="tabs" aria-label="Views">
+      <button class="tab is-active" data-tab="call" aria-pressed="true">The call</button>
+      <button class="tab" data-tab="grid" aria-pressed="false">Grid</button>
+      <button class="tab" data-tab="method" aria-pressed="false">Method</button>
+    </nav>
+  </header>
+
+  <!-- Signature: the Gauntlet -->
+  <section class="gauntlet" aria-label="Your season">
+    <div class="gauntlet-head">
+      <div class="gauntlet-titles">
+        <h1 class="gauntlet-title"><span class="season" id="seasonLabel">2026</span> The gauntlet</h1>
+        <div class="lives" id="lives" aria-live="polite"></div>
+      </div>
+      <p class="gauntlet-hint" id="gauntletHint">Tap a past week to record what you used. Pick an option below and your path fills in.</p>
+    </div>
+    <div class="gauntlet-scroll">
+      <ol class="slots" id="slots" aria-label="Weeks 1 through 18"></ol>
+    </div>
+  </section>
+
+  <main>
+    <!-- CALL VIEW -->
+    <section class="view is-active" id="view-call">
+      <div class="controls" role="group" aria-label="League settings">
+        <label class="control">
+          <span class="control-label">League</span>
+          <span class="control-row">
+            <select id="leagueSelect" aria-label="League"></select>
+            <button type="button" class="ghost" id="editLeague">Edit</button>
+          </span>
+        </label>
+        <label class="control">
+          <span class="control-label">Entries alive</span>
+          <span class="control-row">
+            <input id="poolSize" type="number" min="2" max="100000" step="1" value="50" inputmode="numeric">
+            <span class="chips" id="poolChips">
+              <button type="button" data-pool="10">10</button>
+              <button type="button" data-pool="50">50</button>
+              <button type="button" data-pool="200">200</button>
+              <button type="button" data-pool="1000">1k</button>
+            </span>
+          </span>
+        </label>
+        <label class="control">
+          <span class="control-label">Week</span>
+          <select id="weekSelect" aria-label="Current week"></select>
+        </label>
+        <div class="control control-static">
+          <span class="control-label">Used</span>
+          <span class="used-count" id="usedCount">0 teams</span>
+          <button type="button" class="link" id="clearUsed">Clear</button>
+        </div>
+        <div class="control control-static">
+          <span class="control-label">Format</span>
+          <span class="lives-line" id="livesLine"></span>
+        </div>
+        <div class="control control-static control-right">
+          <span class="control-label">Simulation</span>
+          <span class="sim-note" id="simNote">20,000 seasons</span>
+        </div>
+      </div>
+
+      <div class="call-layout">
+        <article class="call" id="call" aria-live="polite">
+          <div class="call-empty" id="callEmpty">
+            <div class="spinner" aria-hidden="true"></div>
+            <p>Running the season 20,000 times…</p>
+          </div>
+        </article>
+
+        <aside class="candidates">
+          <div class="candidates-head">
+            <h2>This week's options</h2>
+            <p class="muted">Every available team, ranked by simulated pool equity.</p>
+          </div>
+          <ol class="cand-list" id="candList"></ol>
+        </aside>
+      </div>
+
+      <section class="path-section" id="pathSection" hidden>
+        <div class="section-head">
+          <h2>Your path</h2>
+          <p class="muted" id="pathSummary"></p>
+        </div>
+        <div class="table-scroll">
+          <table class="path-table" id="pathTable">
+            <thead>
+              <tr>
+                <th scope="col">Wk</th>
+                <th scope="col">Pick</th>
+                <th scope="col">Matchup</th>
+                <th scope="col" class="num">Line</th>
+                <th scope="col" class="num">Win</th>
+                <th scope="col" class="num">Public on it</th>
+                <th scope="col" class="num">Still alive</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <!-- GRID VIEW -->
+    <section class="view" id="view-grid" hidden>
+      <div class="section-head">
+        <h2>The whole board</h2>
+        <p class="muted">Every team, every remaining week, colored by win probability. Your path is outlined. Hover a cell for the line.</p>
+      </div>
+      <div class="table-scroll grid-scroll">
+        <table class="grid" id="gridTable"></table>
+      </div>
+      <div class="legend" aria-label="Color scale">
+        <span>Underdog</span>
+        <span class="legend-ramp" aria-hidden="true"></span>
+        <span>Heavy favorite</span>
+        <span class="legend-key"><i class="swatch swatch-path"></i>Your path</span>
+        <span class="legend-key"><i class="swatch swatch-used"></i>Used</span>
+      </div>
+    </section>
+
+    <!-- METHOD VIEW -->
+    <section class="view method" id="view-method" hidden>
+      <div class="prose">
+        <h2>How the call is made</h2>
+        <p>A survivor pool is not about surviving. It is about being the last one standing, or one of very few. That means two things matter every week: how likely your team is to win, and how much of the pool goes down with you if it loses. This tool models both.</p>
+
+        <h3>1. Lines, not opinions</h3>
+        <p>Win probabilities come from the betting market. For the current week, moneylines from Pinnacle, DraftKings, FanDuel, BetMGM, Caesars and BetRivers are de-vigged and averaged, with Pinnacle weighted double because it takes sharp action. For future weeks, SurvivorGrid's consensus look-ahead spreads are converted with a logistic curve calibrated to historical straight-up results (a touchdown favorite wins about 76% of the time). Data refreshes three times a day.</p>
+
+        <h3>2. Path search</h3>
+        <p>Each team can be used once, so the season is an assignment problem: 18 weeks to 32 teams. The Hungarian algorithm solves it exactly. Maximizing the product of win probabilities is the same as minimizing the sum of <span class="mono">−log p</span>, which is the cost the solver sees. A leverage term, <span class="mono">λ · log(field survival)</span>, is added at three settings (0, ½, 1) to also generate paths that lean on less popular teams. Every team playing this week is forced into slot one, and the rest of the season is re-solved around it.</p>
+
+        <h3>3. Pool simulation</h3>
+        <p>Each candidate path is played through 20,000 simulated seasons. Every game is a coin weighted by its market probability. The rest of the pool picks teams in proportion to public pick shares, so when a popular favorite loses, most of the field goes with it. If you are the last entry alive you take the pot; if the season ends with several survivors you split it; if everyone left loses in the same week, that week's entrants split. <strong>Pool equity</strong> is your average share of the pot across those seasons. It is the number that ranks the options.</p>
+
+        <h3>What is modeled, and what is not</h3>
+        <ul>
+          <li>Public pick shares are real for the current week (Yahoo, ESPN and OFP pools via SurvivorGrid). For future weeks they are projected with a softmax over win probability, fit each build to this week's actual behavior.</li>
+          <li>The field is assumed not to be constrained by teams it already used. In practice the public burns its favorites early, which makes late-season contrarian picks slightly more valuable than shown.</li>
+          <li>Ties are treated as losses, which is the rule in most pools.</li>
+          <li>Two-lives pools are simulated with a strike count for you and for every entry in the field; an entry is out on its second loss. Enter how many entries are already on their last life and the model accounts for a field that thins more slowly.</li>
+          <li>One entry per person. Multi-entry strategy is a different problem.</li>
+        </ul>
+
+        <h3>Sources</h3>
+        <ul>
+          <li><a href="https://www.survivorgrid.com/" rel="noopener">SurvivorGrid</a> for look-ahead spreads and public pick percentages.</li>
+          <li><a href="https://the-odds-api.com/" rel="noopener">The Odds API</a> for current-week moneylines across books.</li>
+          <li><a href="https://github.com/jlattanzi4/nfl-survivor-optimizer" rel="noopener">Source code</a>: Python pipeline and tests, JavaScript engine, no framework.</li>
+        </ul>
+        <p class="muted small">For entertainment. Lines move; check them before you lock in.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span>Built by <a href="https://jlattanzi4.github.io/" rel="noopener">Joe Lattanzi</a></span>
+    <span id="footData"></span>
+  </footer>
+
+  <!-- Team picker popover -->
+  <div class="picker" id="picker" hidden role="dialog" aria-modal="true" aria-labelledby="pickerTitle">
+    <div class="picker-card">
+      <div class="picker-head">
+        <h3 id="pickerTitle">Week 1</h3>
+        <button type="button" class="icon-btn" id="pickerClose" aria-label="Close">×</button>
+      </div>
+      <p class="muted small">Which team did you use?</p>
+      <div class="picker-grid" id="pickerGrid"></div>
+      <div class="picker-foot">
+        <button type="button" class="link" id="pickerClear">No pick this week</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- League dialog -->
+  <div class="picker" id="leagueDialog" hidden role="dialog" aria-modal="true" aria-labelledby="leagueTitle">
+    <form class="picker-card league-card" id="leagueForm">
+      <div class="picker-head">
+        <h3 id="leagueTitle">League</h3>
+        <button type="button" class="icon-btn" id="leagueClose" aria-label="Close">×</button>
+      </div>
+      <label class="field">
+        <span class="control-label">Name</span>
+        <input type="text" id="leagueName" maxlength="40" required placeholder="Office pool">
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="control-label">Entries alive</span>
+          <input type="number" id="leaguePool" min="2" max="100000" step="1" inputmode="numeric" required>
+        </label>
+        <div class="field">
+          <span class="control-label">Format</span>
+          <div class="segmented" role="radiogroup" aria-label="Lives per entry">
+            <label><input type="radio" name="lives" value="1"><span>Single elimination</span></label>
+            <label><input type="radio" name="lives" value="2"><span>Two lives</span></label>
+          </div>
+        </div>
+      </div>
+      <div class="field-row" id="strikeFields">
+        <label class="field">
+          <span class="control-label">Entries on their last life</span>
+          <input type="number" id="leagueFieldStrikes" min="0" max="100000" step="1" inputmode="numeric" value="0">
+          <span class="field-help">Others in the pool who already took a loss. Update it from the standings each week.</span>
+        </label>
+        <label class="field">
+          <span class="control-label">My strikes</span>
+          <select id="leagueMyStrikes">
+            <option value="auto">Auto, from my recorded picks</option>
+            <option value="0">0</option>
+            <option value="1">1</option>
+          </select>
+          <span class="field-help">Auto counts losses among the weeks you recorded in the gauntlet.</span>
+        </label>
+      </div>
+      <div class="picker-foot league-foot">
+        <button type="button" class="link danger" id="leagueDelete">Delete league</button>
+        <span class="grow"></span>
+        <button type="button" class="ghost" id="leagueCancel">Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

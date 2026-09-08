@@ -1,0 +1,10 @@
+{
+  "name": "nfl-survivor-optimizer",
+  "private": true,
+  "type": "module",
+  "description": "Static NFL survivor pool optimizer: Hungarian path search + Monte Carlo pool simulation in the browser.",
+  "scripts": {
+    "test": "node --test tests/js/",
+    "serve": "python3 -m http.server 8765 --directory docs"
+  }
+}
