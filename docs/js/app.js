@@ -77,9 +77,13 @@ function loadPersisted() {
   if (Number.isFinite(saved.week) && saved.week >= 1 && saved.week <= 18) state.week = saved.week;
 
   // A link with a setup in the hash: reuse a matching league, or import it as a new one.
+  // persist() writes our own state into the hash on every save -- don't mistake
+  // our own hash for a shared link on the next load.
   const h = new URLSearchParams(location.hash.slice(1));
+  let ownHash = false;
+  try { ownHash = !!location.hash && location.hash === localStorage.getItem('survivor:lasthash'); } catch { /* ignore */ }
   if (h.get('w')) { const w = Number(h.get('w')); if (w >= 1 && w <= 18) state.week = w; }
-  if (h.has('pool') || h.has('used') || h.has('lives')) {
+  if (!ownHash && (h.has('pool') || h.has('used') || h.has('lives'))) {
     const incoming = {
       pool: Math.max(2, Math.round(Number(h.get('pool')) || 50)),
       lives: Number(h.get('lives')) === 2 ? 2 : 1,
@@ -100,11 +104,39 @@ function loadPersisted() {
     else { const L = newLeague({ ...incoming, name: `Shared setup ${state.leagues.length + 1}` }); state.leagues.push(L); state.leagueId = L.id; }
   }
   for (const l of state.leagues) for (const [w, t] of Object.entries(l.used)) if (!state.teams.has(t)) delete l.used[w];
+  dedupeSharedLeagues(false);
 }
 
 const snapshots = new Map();      // league id -> serialized content, to detect edits
 const fingerprint = (l) => { const { updatedAt, ...rest } = l; return JSON.stringify(rest); };
 function seedSnapshots() { snapshots.clear(); for (const l of state.leagues) snapshots.set(l.id, fingerprint(l)); }
+
+/**
+ * Remove auto-imported "Shared setup N" leagues that duplicate another league
+ * (created by the old hash-import bug). Only removes one when another league
+ * has identical settings and contains every pick it has, so nothing the user
+ * edited is ever lost. Never removes the last league. Returns removed ids.
+ */
+function dedupeSharedLeagues(removeRemote) {
+  const isAuto = (l) => /^Shared setup \d+$/.test(l.name || '');
+  const dupOf = (l) => state.leagues.find((m) => m.id !== l.id && m.pool === l.pool && m.lives === l.lives
+    && m.fieldStrikes === l.fieldStrikes && String(m.myStrikes) === String(l.myStrikes)
+    && Object.entries(l.used || {}).every(([w, t]) => (m.used || {})[w] === t));
+  const removed = [];
+  for (const l of [...state.leagues]) {
+    if (!isAuto(l) || state.leagues.length < 2) continue;
+    const keeper = dupOf(l);
+    if (!keeper) continue;
+    state.leagues = state.leagues.filter((x) => x.id !== l.id);
+    if (state.leagueId === l.id) state.leagueId = keeper.id;
+    snapshots.delete(l.id);
+    removed.push(l.id);
+  }
+  if (removed.length && removeRemote && sync.enabled()) {
+    for (const id of removed) sync.remove(id).catch((e) => console.error('sync remove failed', e));
+  }
+  return removed;
+}
 
 function persist() {
   const changed = [];
@@ -122,6 +154,7 @@ function persist() {
   if (L.lives > 1) { h.set('lives', L.lives); h.set('fs', L.fieldStrikes); h.set('ms', L.myStrikes); }
   if (used.length) h.set('used', used.map(([w, t]) => `${w}:${t}`).join(','));
   history.replaceState(null, '', `#${h.toString()}`);
+  try { localStorage.setItem('survivor:lasthash', location.hash); } catch { /* ignore */ }
 }
 
 const usedList = () => Object.entries(league().used).filter(([w]) => Number(w) < state.week).map(([, t]) => t);
@@ -708,6 +741,7 @@ async function pullAndMerge(reason) {
     if (!league()) state.leagueId = state.leagues[0].id;
     state.leagueId = league().id;
     seedSnapshots();
+    dedupeSharedLeagues(true);
     await sync.push(state.leagues.filter((l) => toPush.includes(l.id)));
     lastPull = Date.now();
     try { localStorage.setItem('survivor:v3', JSON.stringify({ week: state.week, leagueId: state.leagueId, leagues: state.leagues })); } catch { /* ignore */ }
