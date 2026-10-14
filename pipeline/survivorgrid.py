@@ -101,7 +101,7 @@ def parse_html(html: str) -> list[GridRow]:
         cells = [c.get_text(strip=True) for c in tr.find_all(["td", "th"])]
         if len(cells) <= team_col:
             continue
-        team = to_abbr(re.sub(r"\(.\)", "", cells[team_col]))
+        team = to_abbr(re.sub(r"\([^)]*\)", "", cells[team_col]))
         parsed = []
         for week, idx in week_cols.items():
             if idx < len(cells):
