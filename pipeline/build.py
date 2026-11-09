@@ -41,8 +41,38 @@ def merge_odds(games: list[dict], odds_games: list[dict]) -> int:
         g["ml"] = og["ml"]
         g["src"] = "market"
         g["books"] = og["books"]
+        g["commence"] = og.get("commence")
+        g["priced_at"] = og.get("priced_at")
         applied += 1
     return applied
+
+
+def _utc(ts: str) -> datetime:
+    return datetime.fromisoformat(ts)
+
+
+def carry_forward(games: list[dict], previous: list[dict]) -> int:
+    """Keep a game's last pre-game market price once it drops off the odds board.
+
+    The odds request only covers games that haven't kicked off, so a game in
+    progress (or finished, before SurvivorGrid posts the result) gets no fresh
+    price and would otherwise fall back to the spread mid-game. Only prices
+    taken before kickoff carry; older records without timestamps never do.
+    """
+    prev = {(g["week"], g["team"]): g for g in previous if g.get("src") == "market"}
+    carried = 0
+    for g in games:
+        if g["result"] is not None or g.get("src") == "market":
+            continue
+        old = prev.get((g["week"], g["team"]))
+        if not old or old["opp"] != g["opp"] or not old.get("commence") or not old.get("priced_at"):
+            continue
+        if _utc(old["priced_at"]) >= _utc(old["commence"]):
+            continue
+        for key in ("p", "ml", "src", "books", "commence", "priced_at"):
+            g[key] = old[key]
+        carried += 1
+    return carried
 
 
 def apply_popularity(games: list[dict], sg_week: int) -> float:
@@ -63,7 +93,7 @@ def apply_popularity(games: list[dict], sg_week: int) -> float:
     return k
 
 
-def build(html: str, use_odds: bool, now: datetime | None = None) -> dict:
+def build(html: str, use_odds: bool, now: datetime | None = None, previous: dict | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     yr = int(os.environ.get("SEASON") or season.season_for(now))
     rows = survivorgrid.parse_html(html)
@@ -75,7 +105,7 @@ def build(html: str, use_odds: bool, now: datetime | None = None) -> dict:
     if use_odds:
         try:
             raw = odds_api.fetch(season=yr)
-            og = odds_api.to_games(raw["events"], yr)
+            og = odds_api.to_games(raw["events"], yr, priced_at=raw["fetched_at"])
             applied = merge_odds(games, og)
             sources["odds_api"] = {
                 "fetched_at": raw["fetched_at"],
@@ -90,6 +120,10 @@ def build(html: str, use_odds: bool, now: datetime | None = None) -> dict:
         except Exception as exc:  # network / quota / key problems must not break the build
             log(f"odds api skipped: {exc}")
             sources["odds_api"] = {"error": str(exc)}
+        if previous and previous.get("season") == yr:
+            carried = carry_forward(games, previous["games"])
+            sources["odds_api"]["carried"] = carried
+            log(f"kept the last pre-game price for {carried} team-weeks off the odds board")
 
     k = apply_popularity(games, sg_week)
     log(f"popularity model k={k}")
@@ -124,8 +158,10 @@ def main(argv: list[str] | None = None) -> int:
     use_odds = not args.no_odds and bool(os.environ.get("ODDS_API_KEY"))
     if not use_odds and not args.no_odds:
         log("ODDS_API_KEY not set; SurvivorGrid only")
-    data = build(html, use_odds)
     out = Path(args.out)
+    # The last build is the memory of pre-game prices for games now underway.
+    previous = json.loads(out.read_text()) if out.exists() else None
+    data = build(html, use_odds, previous=previous)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(data, separators=(",", ":")))
     log(f"wrote {out} ({out.stat().st_size // 1024} KB)")
