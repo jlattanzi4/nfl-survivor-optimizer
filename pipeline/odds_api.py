@@ -7,7 +7,7 @@ region touched; with Pinnacle (eu) plus US books that is 2 credits.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import requests
 
@@ -59,10 +59,11 @@ def consensus(game: dict) -> dict | None:
     return {"home": home, "away": away, "p_home": p_home, "books": books, "sharp": "pinnacle" in books}
 
 
-def fetch(api_key: str | None = None, season: int | None = None) -> dict:
+def fetch(api_key: str | None = None, season: int | None = None, now: datetime | None = None) -> dict:
     api_key = api_key or os.environ.get("ODDS_API_KEY", "")
     if not api_key:
         raise RuntimeError("ODDS_API_KEY not set")
+    now = (now or datetime.now(UTC)).astimezone(UTC)
     resp = requests.get(
         f"{BASE}/sports/americanfootball_nfl/odds",
         params={
@@ -70,6 +71,8 @@ def fetch(api_key: str | None = None, season: int | None = None) -> dict:
             "markets": "h2h",
             "oddsFormat": "american",
             "bookmakers": ",".join(BOOKS),
+            # Games already underway would come back with in-play prices.
+            "commenceTimeFrom": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         },
         timeout=20,
     )
@@ -78,11 +81,11 @@ def fetch(api_key: str | None = None, season: int | None = None) -> dict:
         "events": resp.json(),
         "remaining": resp.headers.get("x-requests-remaining"),
         "cost": resp.headers.get("x-requests-last"),
-        "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "fetched_at": now.isoformat(timespec="seconds"),
     }
 
 
-def to_games(events: list[dict], season: int) -> list[dict]:
+def to_games(events: list[dict], season: int, priced_at: str | None = None) -> list[dict]:
     """One record per team per game with consensus fair probability and moneyline."""
     out = []
     for ev in events:
@@ -101,5 +104,6 @@ def to_games(events: list[dict], season: int) -> list[dict]:
                 "books": len(c["books"]),
                 "sharp": c["sharp"],
                 "commence": ev["commence_time"],
+                "priced_at": priced_at,
             })
     return out
