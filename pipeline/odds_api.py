@@ -48,7 +48,7 @@ def consensus(game: dict) -> dict | None:
         prices = {to_abbr(o["name"]): o["price"] for o in h2h.get("outcomes", [])}
         if home not in prices or away not in prices:
             continue
-        ph, pa = devig(american_to_prob(prices[home]), american_to_prob(prices[away]))
+        ph, _ = devig(american_to_prob(prices[home]), american_to_prob(prices[away]))
         w = WEIGHTS.get(bk["key"], 1.0)
         num += w * ph
         den += w
@@ -92,7 +92,7 @@ def to_games(events: list[dict], season: int, priced_at: str | None = None) -> l
         c = consensus(ev)
         if not c:
             continue
-        when = datetime.fromisoformat(ev["commence_time"].replace("Z", "+00:00"))
+        when = datetime.fromisoformat(ev["commence_time"])
         week = week_for(when, season)
         for team, opp, p in ((c["home"], c["away"], c["p_home"]), (c["away"], c["home"], 1 - c["p_home"])):
             out.append({

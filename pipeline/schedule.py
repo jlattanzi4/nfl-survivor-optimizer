@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 import requests
@@ -35,7 +35,7 @@ def _kickoff(gameday: str, gametime: str) -> str | None:
     if not gameday or not gametime:
         return None
     local = datetime.strptime(f"{gameday} {gametime}", "%Y-%m-%d %H:%M").replace(tzinfo=EASTERN)
-    return local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return local.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _score(text: str) -> int | None:

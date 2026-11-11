@@ -17,9 +17,8 @@ Cell grammar (all seen on the live site)::
 """
 from __future__ import annotations
 
-import math
 import re
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 
 import requests
 from bs4 import BeautifulSoup

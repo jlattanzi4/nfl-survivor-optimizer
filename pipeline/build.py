@@ -11,7 +11,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import odds_api, popularity, schedule, season, survivorgrid, teams
@@ -163,7 +163,7 @@ def apply_popularity(games: list[dict], sg_week: int) -> float:
 
 def build(html: str, use_odds: bool, now: datetime | None = None, previous: dict | None = None,
           schedule_csv: str | None = None) -> dict:
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     yr = int(os.environ.get("SEASON") or season.season_for(now))
     rows = survivorgrid.parse_html(html)
     games = survivorgrid.to_games(rows)
@@ -186,7 +186,7 @@ def build(html: str, use_odds: bool, now: datetime | None = None, previous: dict
             }
             log(f"odds api: {len(raw['events'])} events, {applied} team-weeks updated, "
                 f"call cost {raw['cost']} credits, {raw['remaining']} left")
-        except Exception as exc:  # network / quota / key problems must not break the build
+        except Exception as exc:  # noqa: BLE001  network, quota or key problems must not break the build
             log(f"odds api skipped: {exc}")
             sources["odds_api"] = {"error": str(exc)}
         if previous and previous.get("season") == yr:
@@ -253,7 +253,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.no_schedule:
         try:
             schedule_csv = schedule.fetch_csv()
-        except Exception as exc:  # a schedule outage must not stop the lines from refreshing
+        except Exception as exc:  # noqa: BLE001  a schedule outage must not stop the lines from refreshing
             log(f"schedule skipped: {exc}")
     data = build(html, use_odds, previous=previous, schedule_csv=schedule_csv)
     out.parent.mkdir(parents=True, exist_ok=True)
