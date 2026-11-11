@@ -1,22 +1,29 @@
 /**
  * Candidate generation + ranking. Runs inside the Web Worker.
  */
-import { indexByWeek, bestPath, pathWinOut } from './optimizer.js';
+import { indexByWeek, bestPath, hasStarted, pathWinOut } from './optimizer.js';
 import { prepare, simulateField, scorePath, expectedSurvivors, rng } from './simulate.js';
 
 export const LAMBDAS = [0, 0.5, 1];
 export const LAMBDAS_TWO_LIVES = [0, 0.5, 1, 1.5];
 
-export function analyze(data, { used, currentWeek, poolSize, nSims = 20000, seed = 7, lambdas, lives = 1, myStrikes = 0, fieldStrikes = 0 }) {
+/**
+ * `locked` is the team already locked in for `currentWeek`, if any. A team
+ * whose game has kicked off can't be picked, with one exception: if the locked
+ * team's game has started, that pick is in, and it becomes the only candidate.
+ */
+export function analyze(data, { used, currentWeek, poolSize, nSims = 20000, seed = 7, lambdas, lives = 1, myStrikes = 0, fieldStrikes = 0, locked = null, now = Date.now() }) {
   lambdas = lambdas || (lives > 1 ? LAMBDAS_TWO_LIVES : LAMBDAS);
   myStrikes = Math.min(Math.max(0, myStrikes), lives - 1);
-  const byWeek = indexByWeek(data.games);
+  const lockedGame = locked ? data.games.find((g) => g.week === currentWeek && g.team === locked) : null;
+  const riding = Boolean(lockedGame && lockedGame.p != null && hasStarted(lockedGame, now));
+  const byWeek = indexByWeek(data.games, { now, keep: riding ? { week: currentWeek, team: locked } : null });
   const weeks = [];
   for (let w = currentWeek; w <= 18; w++) if ((byWeek.get(w) || []).length) weeks.push(w);
   const allTeams = data.teams.map((t) => t.abbr);
   const thisWeek = byWeek.get(currentWeek) || [];
   const usedSet = new Set(used);
-  const playing = thisWeek.map((g) => g.team).filter((t) => !usedSet.has(t)).sort();
+  const playing = riding ? [locked] : thisWeek.map((g) => g.team).filter((t) => !usedSet.has(t)).sort();
 
   const seen = new Map();
   for (const team of playing) {
@@ -60,6 +67,7 @@ export function analyze(data, { used, currentWeek, poolSize, nSims = 20000, seed
 
   return {
     weeks,
+    riding,
     poolSize,
     lives,
     myStrikes,

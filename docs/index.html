@@ -133,7 +133,7 @@
     <section class="view" id="view-grid" hidden>
       <div class="section-head">
         <h2>The whole board</h2>
-        <p class="muted">Every team, every remaining week, colored by win probability. Your path is outlined. Hover a cell for the line.</p>
+        <p class="muted">Every team, every week: results for the weeks played, win probability for the weeks to come. Your path is outlined. Hover a cell for the line.</p>
       </div>
       <div class="table-scroll grid-scroll">
         <table class="grid" id="gridTable"></table>
@@ -167,6 +167,7 @@
           <li>Public pick shares are real for the current week (Yahoo, ESPN and OFP pools via SurvivorGrid). For future weeks they are projected with a softmax over win probability, fit each build to this week's actual behavior.</li>
           <li>The field is assumed not to be constrained by teams it already used. In practice the public burns its favorites early, which makes late-season contrarian picks slightly more valuable than shown.</li>
           <li>Ties are treated as losses, which is the rule in most pools.</li>
+          <li>A team can be picked until its game kicks off. After that it leaves this week's options, and its line and public share stop moving. If your locked pick has kicked off, it is the only option shown. Strikes in a two-lives league are counted from the final scores of the picks you recorded.</li>
           <li>Two-lives pools are simulated with a strike count for you and for every entry in the field; an entry is out on its second loss. Enter how many entries are already on their last life and the model accounts for a field that thins more slowly.</li>
           <li>Your leagues, picks and locks are saved in this browser. Sign in with an email link to sync them across devices; each account only sees its own leagues. The Copy link button carries a league's full setup for sharing.</li>
           <li>One entry per person. Multi-entry strategy is a different problem.</li>
@@ -176,6 +177,7 @@
         <ul>
           <li><a href="https://www.survivorgrid.com/" rel="noopener">SurvivorGrid</a> for look-ahead spreads and public pick percentages.</li>
           <li><a href="https://the-odds-api.com/" rel="noopener">The Odds API</a> for current-week moneylines across books.</li>
+          <li><a href="https://github.com/nflverse/nfldata" rel="noopener">nflverse</a> for kickoff times and final scores.</li>
           <li><a href="https://github.com/jlattanzi4/nfl-survivor-optimizer" rel="noopener">Source code</a>: Python pipeline and tests, JavaScript engine, no framework.</li>
         </ul>
         <p class="muted small">For entertainment. Lines move; check them before you lock in.</p>

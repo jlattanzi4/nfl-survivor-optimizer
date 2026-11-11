@@ -14,11 +14,28 @@ probability; λ = 1 maximizes the product of weekly pool "expected value"
 from __future__ import annotations
 
 import math
+from datetime import datetime
 
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 BIG = 1e6
+
+
+def pickable(games: list[dict], now: datetime) -> list[dict]:
+    """The games that can still be picked: priced, with no result, and not kicked off.
+
+    Mirrors ``indexByWeek`` in docs/js/optimizer.js.
+    """
+    out = []
+    for g in games:
+        if g.get("p") is None or g.get("result") is not None:
+            continue
+        kickoff = g.get("kickoff")
+        if kickoff and datetime.fromisoformat(kickoff) <= now:
+            continue
+        out.append(g)
+    return out
 
 
 def field_survival(week_games: list[dict], pick: str) -> float:
