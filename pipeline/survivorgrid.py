@@ -14,11 +14,15 @@ Cell grammar (all seen on the live site)::
     @SEAPK         pick'em at SEA
     NYG-7(W)       completed game, won
     BYE
+
+A cell or row that doesn't fit is skipped and recorded, not fatal: one odd
+token on the page should cost one game, not the whole refresh. Whether what is
+left is fit to publish is for ``validate`` to decide.
 """
 from __future__ import annotations
 
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 import requests
 from bs4 import BeautifulSoup
@@ -62,6 +66,12 @@ class GridRow:
     cells: list[Cell]
 
 
+@dataclass
+class Grid:
+    rows: list[GridRow]
+    skipped: list[str] = field(default_factory=list)   # what couldn't be read, in words
+
+
 def parse_cell(text: str, week: int, team: str) -> Cell | None:
     text = text.strip().replace("\xa0", "")
     if not text or text.upper() == "BYE":
@@ -83,7 +93,7 @@ def _pct(text: str) -> float | None:
         return None
 
 
-def parse_html(html: str) -> list[GridRow]:
+def parse_html(html: str) -> Grid:
     soup = BeautifulSoup(html, "lxml")
     table = soup.find("table")
     if table is None:
@@ -95,22 +105,29 @@ def parse_html(html: str) -> list[GridRow]:
     w_col = headers.index("W%")
     p_col = headers.index("P%")
 
-    out: list[GridRow] = []
+    grid = Grid([])
     for tr in rows[1:]:
         cells = [c.get_text(strip=True) for c in tr.find_all(["td", "th"])]
         if len(cells) <= team_col:
             continue
-        team = to_abbr(re.sub(r"\([^)]*\)", "", cells[team_col]))
+        try:
+            team = to_abbr(re.sub(r"\([^)]*\)", "", cells[team_col]))
+        except KeyError:
+            grid.skipped.append(f"row for unknown team {cells[team_col]!r}")
+            continue
         parsed = []
         for week, idx in week_cols.items():
-            if idx < len(cells):
+            if idx >= len(cells):
+                continue
+            try:
                 c = parse_cell(cells[idx], week, team)
-                if c:
-                    parsed.append(c)
-        out.append(GridRow(team, _pct(cells[w_col]), _pct(cells[p_col]), parsed))
-    if len(out) != 32:
-        raise ValueError(f"Expected 32 team rows, parsed {len(out)}")
-    return out
+            except (ValueError, KeyError):   # not in the grammar, or names a team that doesn't exist
+                grid.skipped.append(f"wk{week} {team}: cell {cells[idx]!r}")
+                continue
+            if c:
+                parsed.append(c)
+        grid.rows.append(GridRow(team, _pct(cells[w_col]), _pct(cells[p_col]), parsed))
+    return grid
 
 
 def grid_current_week(rows: list[GridRow]) -> int:

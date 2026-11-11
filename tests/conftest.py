@@ -17,7 +17,7 @@ def grid_html() -> str:
 @pytest.fixture(scope="session")
 def grid_rows(grid_html):
     from pipeline import survivorgrid
-    return survivorgrid.parse_html(grid_html)
+    return survivorgrid.parse_html(grid_html).rows
 
 
 @pytest.fixture(scope="session")
@@ -27,3 +27,10 @@ def games(grid_rows):
     g = survivorgrid.to_games(grid_rows)
     apply_popularity(g, survivorgrid.grid_current_week(grid_rows))
     return g
+
+
+def with_cell(html: str, team: str, old: str, new: str) -> str:
+    """The saved SurvivorGrid page with one piece of a team's row changed."""
+    row = html.index(f'<td class="teamname">{team}</td>')
+    at = html.index(old, row)
+    return html[:at] + new + html[at + len(old):]

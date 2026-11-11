@@ -131,3 +131,13 @@ def test_build_carries_the_schedule_when_nflverse_cannot_be_reached(grid_html):
     # With nothing to carry, the build still succeeds, just without kickoffs.
     alone = build(grid_html, use_odds=False, now=NOW, schedule_csv=None)
     assert "schedule" not in alone["sources"] and not any("kickoff" in g for g in alone["games"])
+
+
+def test_a_schedule_file_that_cannot_be_read_is_treated_like_an_outage(grid_html):
+    first = build(grid_html, use_odds=False, now=NOW, schedule_csv=SAMPLE)
+    # A truncated or reshaped download: the header is not the one the parser knows.
+    second = build(grid_html, use_odds=False, now=NOW, previous=first, schedule_csv="<html>Bad gateway</html>")
+    assert second["sources"]["schedule"]["carried"] is True
+    known = {(g["week"], g["team"]): g["result"] for g in first["games"] if "kickoff" in g}
+    again = {(g["week"], g["team"]): g["result"] for g in second["games"] if "kickoff" in g}
+    assert again == known

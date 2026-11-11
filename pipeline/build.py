@@ -14,7 +14,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import odds_api, popularity, schedule, season, survivorgrid, teams
+from . import odds_api, popularity, schedule, season, survivorgrid, teams, validate
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT = ROOT / "docs" / "data" / "season.json"
@@ -22,6 +22,13 @@ DEFAULT_OUT = ROOT / "docs" / "data" / "season.json"
 
 def log(msg: str) -> None:
     print(f"[build] {msg}", file=sys.stderr)
+
+
+def flag(level: str, msg: str) -> None:
+    """Log a warning or error. On GitHub Actions it is also pinned to the run's summary page."""
+    log(f"{level}: {msg}")
+    if os.environ.get("GITHUB_ACTIONS"):
+        print(f"::{level}::{msg}")
 
 
 MIN_BOOKS = 2   # a lone soft book's look-ahead line is not a consensus; a lone Pinnacle line is fine
@@ -165,12 +172,16 @@ def build(html: str, use_odds: bool, now: datetime | None = None, previous: dict
           schedule_csv: str | None = None) -> dict:
     now = now or datetime.now(UTC)
     yr = int(os.environ.get("SEASON") or season.season_for(now))
-    rows = survivorgrid.parse_html(html)
+    grid = survivorgrid.parse_html(html)
+    rows = grid.rows
     games = survivorgrid.to_games(rows)
     sg_week = survivorgrid.grid_current_week(rows)
     log(f"survivorgrid: {len(games)} team-weeks, grid week {sg_week}")
+    for what in grid.skipped:
+        flag("warning", f"survivorgrid skipped {what}")
 
-    sources = {"survivorgrid": {"fetched_at": now.isoformat(timespec="seconds"), "week": sg_week}}
+    sources = {"survivorgrid": {"fetched_at": now.isoformat(timespec="seconds"), "week": sg_week,
+                                "skipped": grid.skipped}}
     if use_odds:
         try:
             raw = odds_api.fetch(season=yr)
@@ -196,8 +207,14 @@ def build(html: str, use_odds: bool, now: datetime | None = None, previous: dict
 
     same_season = bool(previous) and previous.get("season") == yr
     if schedule_csv is not None:
-        team_weeks, fetched_at = schedule.parse(schedule_csv, yr), now.isoformat(timespec="seconds")
-    else:   # no download this time: keep what the last build knew
+        try:
+            team_weeks, fetched_at = schedule.parse(schedule_csv, yr), now.isoformat(timespec="seconds")
+            if not team_weeks:
+                raise ValueError(f"no {yr} regular-season games in the file")
+        except Exception as exc:  # noqa: BLE001  a file that can't be read is an outage like any other
+            flag("warning", f"schedule could not be read: {exc!r}")
+            schedule_csv = None
+    if schedule_csv is None:   # no download this time: keep what the last build knew
         team_weeks = schedule_from(previous["games"]) if same_season else []
         fetched_at = previous["sources"].get("schedule", {}).get("fetched_at") if team_weeks else None
     if team_weeks:
@@ -256,6 +273,14 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # noqa: BLE001  a schedule outage must not stop the lines from refreshing
             log(f"schedule skipped: {exc}")
     data = build(html, use_odds, previous=previous, schedule_csv=schedule_csv)
+    report = validate.check(data, previous)
+    for warning in report.warnings:
+        flag("warning", warning)
+    if not report.ok:
+        for error in report.errors:
+            flag("error", error)
+        log(f"not writing {out}: the build failed validation, so the last good file stays")
+        return 1
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(data, separators=(",", ":")))
     log(f"wrote {out} ({out.stat().st_size // 1024} KB)")
