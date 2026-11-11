@@ -3,6 +3,7 @@ import json
 import math
 import shutil
 import subprocess
+from datetime import UTC, datetime
 
 import pytest
 
@@ -19,11 +20,12 @@ def test_js_matches_python_paths(games):
     lambdas = [0, 0.5, 1]
     weeks = list(range(1, 19))
     used = ["KC", "BUF"]
-    opts = {"forces": forces, "lambdas": lambdas, "weeks": weeks, "used": used}
+    now = datetime.now(UTC)
+    opts = {"forces": forces, "lambdas": lambdas, "weeks": weeks, "used": used, "now": now.isoformat()}
     out = subprocess.run([node, str(ROOT / "scripts" / "parity.mjs"), str(season_json), json.dumps(opts)],
                          capture_output=True, text=True, check=True).stdout
     js = json.loads(out)
-    data = json.loads(season_json.read_text())["games"]
+    data = optimizer.pickable(json.loads(season_json.read_text())["games"], now)
     for row in js:
         py = optimizer.best_path(data, set(used), weeks, lam=row["lam"], force=row["force"])
         assert (py is None) == (row["path"] is None)

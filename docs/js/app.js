@@ -3,6 +3,7 @@
  * and renders the gauntlet, the call, the candidate list, the path table
  * and the full grid.
  */
+import { hasStarted } from './optimizer.js';
 import { analyze } from './engine.js';
 import { applyOffer, decodeShare, dropAutoDuplicates, encodeShare, makeLeague, merge3, reconcile, sameContent } from './leagues.js';
 import * as sync from './sync.js';
@@ -201,7 +202,7 @@ async function run() {
   renderGauntlet();
   showLoading(`Running the season ${N_SIMS.toLocaleString()} times…`);
   const L = league();
-  const options = { used: usedList(), currentWeek: state.week, poolSize: L.pool, nSims: N_SIMS, seed: 7, lives: L.lives, myStrikes: myStrikes(), fieldStrikes: L.fieldStrikes };
+  const options = { used: usedList(), currentWeek: state.week, poolSize: L.pool, nSims: N_SIMS, seed: 7, lives: L.lives, myStrikes: myStrikes(), fieldStrikes: L.fieldStrikes, locked: lockedPick(), now: Date.now() };
   const myJob = ++jobId + 0.5;
   state.lastJob = myJob;
   try {
@@ -251,6 +252,8 @@ function renderStatus() {
   parts.push(`SurvivorGrid wk ${state.data.grid_week}`);
   if (s.odds_api && !s.odds_api.error) parts.push(`market lines on ${Math.round((s.odds_api.applied || 0) / 2)} games`);
   else parts.push('market lines off');
+  const lastScored = Math.max(0, ...state.data.games.filter((g) => g.result).map((g) => g.week));
+  if (lastScored) parts.push(`scores through wk ${lastScored}`);
   $('#status').innerHTML = parts.join(' · ');
   $('#footData').textContent = `Data ${new Date(state.data.generated_at).toLocaleString()} · ${state.data.games.length} team-weeks`;
   $('#seasonLabel').textContent = state.data.season;
@@ -322,7 +325,7 @@ function renderGauntlet(cascade = false) {
       team = lock || cand?.team || null;
       if (lock) {
         const g = gameOf(w, lock);
-        sub = 'Locked in';
+        sub = g?.result ? `${g.result === 'W' ? 'Won' : g.result === 'L' ? 'Lost' : 'Tied'} ${g.score || ''}`.trim() : g && hasStarted(g) ? 'Kicked off' : 'Locked in';
         li.classList.add('is-locked');
         li.append(el('span', { class: 'slot-lock', text: '🔒', 'aria-hidden': 'true' }));
         if (g?.result) li.append(el('span', { class: `slot-result ${g.result}`, text: g.result === 'W' ? '✓' : g.result === 'L' ? '✗' : '–' }));
@@ -351,7 +354,11 @@ function renderCandidates() {
   list.replaceChildren();
   const r = state.result;
   if (!r.candidates.length) {
-    list.append(el('li', { class: 'cand-empty', text: 'No playable path from here. Check the week and your used teams.' }));
+    const weekGames = state.data.games.filter((g) => g.week === state.week && g.p != null);
+    const allStarted = weekGames.length > 0 && weekGames.every((g) => hasStarted(g));
+    list.append(el('li', { class: 'cand-empty', text: allStarted
+      ? `Every week ${state.week} game has kicked off, so there is nothing left to pick this week. Record what you played in the gauntlet above, or move on to week ${Math.min(18, state.week + 1)}.`
+      : 'No playable path from here. Check the week and your used teams.' }));
     return;
   }
   list.append(el('li', { class: 'cand-head', html: '<span></span><span></span><span>Team</span><span class="hide-sm">Win</span><span>Public</span><span>Pool equity</span>' }));
@@ -420,7 +427,11 @@ function lockRow(c) {
   const lock = lockedPick();
   const t = state.teams.get(c.team);
   const row = el('div', { class: 'call-actions' });
-  if (lock === c.team) {
+  const lockedGame = lock ? gameOf(state.week, lock) : null;
+  if (lock === c.team && lockedGame && hasStarted(lockedGame)) {
+    const how = lockedGame.result === 'W' ? `won ${lockedGame.score || ''}` : lockedGame.result === 'L' ? `lost ${lockedGame.score || ''}` : lockedGame.result === 'T' ? `tied ${lockedGame.score || ''} (a tie counts as a loss)` : 'have kicked off';
+    row.append(el('span', { class: 'locked-msg', html: `🔒 <b>${t.nick}</b> ${how.trim()}. Your week ${state.week} pick is in. Recorded the wrong team? Change it in the gauntlet above.` }));
+  } else if (lock === c.team) {
     row.append(el('span', { class: 'locked-msg', html: `🔒 <b>${t.nick}</b> locked in for week ${state.week}. It saves here and counts as used next week.` }));
     const change = el('button', { type: 'button', class: 'link', text: 'Unlock' });
     change.addEventListener('click', () => { delete league().used[state.week]; scheduleRun(); });
@@ -555,7 +566,7 @@ function renderGrid() {
       const g = gameOf(w, t.abbr);
       if (!g) { tr.append(el('td', { class: 'bye', text: 'BYE' })); continue; }
       const td = el('td');
-      if (g.result || w < state.week) {
+      if (hasStarted(g) || g.p == null || w < state.week) {
         td.classList.add('done');
         if (g.result) td.classList.add(g.result);
         td.append(el('span', { text: g.result || '·' }), el('span', { class: 'opp', text: matchup(g) }));
@@ -564,13 +575,22 @@ function renderGrid() {
         td.append(el('span', { text: pct(g.p, 0) }), el('span', { class: 'opp', text: `${g.site === 'away' ? '@' : ''}${g.opp}` }));
         if (pathBy.has(`${w}:${t.abbr}`)) td.classList.add('path');
       }
-      td.addEventListener('mousemove', (e) => showTip(e, `<b>Week ${w} · ${t.abbr} ${matchup(g)}</b><br>${spread(g.spread)}${g.ml != null ? ` · ${ml(g.ml)}` : ''} · win ${pct(g.p)}<br><span class="muted">${g.pick != null ? `public ${pct(g.pick)} (${g.pick_src === 'public' ? 'actual' : 'projected'})` : ''}${g.result ? `result ${g.result}` : ''}</span>`));
+      td.addEventListener('mousemove', (e) => showTip(e, gridTip(w, t, g)));
       td.addEventListener('mouseleave', hideTip);
       tr.append(td);
     }
     tbody.append(tr);
   }
   table.append(tbody);
+}
+
+/** What a grid cell says on hover: the outcome if there is one, then the pre-game numbers we have. */
+function gridTip(w, t, g) {
+  const head = `<b>Week ${w} · ${t.abbr} ${matchup(g)}</b>`;
+  const outcome = g.result ? `${g.result === 'W' ? 'Won' : g.result === 'L' ? 'Lost' : 'Tied'}${g.score ? ` ${g.score}` : ''}` : hasStarted(g) ? 'Kicked off' : '';
+  const line = g.p == null ? '' : `${g.spread != null ? `${spread(g.spread)}${g.ml != null ? ` · ${ml(g.ml)}` : ''} · ` : ''}win ${pct(g.p)}${outcome ? ' before kickoff' : ''}`;
+  const publicShare = g.pick != null ? `public ${pct(g.pick)} (${g.pick_src === 'public' ? 'actual' : 'projected'})` : '';
+  return [head, outcome, line, publicShare && `<span class="muted">${publicShare}</span>`].filter(Boolean).join('<br>');
 }
 
 /* --------------------------------------------------------------- tooltip */

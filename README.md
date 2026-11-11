@@ -15,7 +15,10 @@ solves the first part exactly and simulates the second.
    SurvivorGrid's look-ahead spreads, converted with a logistic curve calibrated
    to historical straight-up results. Public pick shares come from SurvivorGrid
    (Yahoo / ESPN / OFP pools) for the current week and are projected for future
-   weeks with a softmax fit to this week's behavior.
+   weeks with a softmax fit to this week's behavior. Kickoff times and final
+   scores come from nflverse: a team can be picked until its game kicks off,
+   after which its numbers are frozen at their last pre-game values, and the
+   results fill in the weeks already played.
 2. **Path search.** Each team can be used once, so the season is an 18-weeks ×
    32-teams assignment. The Hungarian algorithm solves it exactly, minimizing
    `Σ −log p` (which maximizes the product of win probabilities). A leverage
@@ -59,6 +62,7 @@ Everything else runs in the browser. There is no app server.
 pipeline/            Python: fetch + merge sources → docs/data/season.json
   survivorgrid.py    parser (handles neutral-site "(n)" and "PK" cells)
   odds_api.py        de-vigged, Pinnacle-weighted consensus moneylines
+  schedule.py        nflverse kickoff times and final scores
   popularity.py      softmax pick-share model for future weeks
   optimizer.py       reference Hungarian path search (parity-tested vs JS)
   simulate.py        reference Monte Carlo pool model (numpy)

@@ -1,0 +1,9 @@
+game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home_team,home_score,location,result,total,overtime
+2025_18_BUF_NE,2025,REG,18,2026-01-04,Sunday,13:00,BUF,20,NE,23,Home,3,43,0
+2026_01_NE_SEA,2026,REG,1,2026-09-09,Wednesday,20:20,NE,10,SEA,13,Home,3,23,0
+2026_01_SF_LA,2026,REG,1,2026-09-10,Thursday,20:35,SF,27,LA,7,Neutral,-20,34,0
+2026_05_NYG_WAS,2026,REG,5,2026-10-11,Sunday,13:00,NYG,27,WAS,27,Home,0,54,1
+2026_09_BUF_MIN,2026,REG,9,2026-11-09,Monday,20:15,BUF,23,MIN,6,Home,-17,29,0
+2026_10_BUF_NYJ,2026,REG,10,2026-11-15,Sunday,13:00,BUF,,NYJ,,Home,,,
+2026_18_KC_DEN,2026,REG,18,2027-01-10,Sunday,,KC,,DEN,,Home,,,
+2026_19_KC_BUF,2026,WC,19,2027-01-16,Saturday,16:30,KC,,BUF,,Home,,,

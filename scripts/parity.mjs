@@ -5,7 +5,7 @@ import { indexByWeek, bestPath, pathWinOut } from '../docs/js/optimizer.js';
 
 const data = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 const opts = JSON.parse(process.argv[3] || '{}');
-const byWeek = indexByWeek(data.games);
+const byWeek = indexByWeek(data.games, { now: Date.parse(opts.now) });
 const teams = data.teams.map((t) => t.abbr);
 const weeks = opts.weeks;
 const out = [];

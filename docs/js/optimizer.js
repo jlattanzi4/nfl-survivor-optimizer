@@ -7,12 +7,29 @@
  */
 import { assign, BIG } from './hungarian.js';
 
-export function indexByWeek(games) {
+/** A game is over or under way: it has a result, or its kickoff has passed. */
+export function hasStarted(g, now = Date.now()) {
+  return g.result != null || (g.kickoff != null && Date.parse(g.kickoff) <= now);
+}
+
+/**
+ * The games that can still be picked, by week: priced, and not kicked off.
+ *
+ * `keep` names one team-week to leave in even though it has started: the pick
+ * already riding on that game. Once it's final its probability is no longer a
+ * forecast, so it becomes 1 for a win and 0 for a loss or tie.
+ */
+export function indexByWeek(games, { now = Date.now(), keep = null } = {}) {
   const by = new Map();
   for (const g of games) {
-    if (g.result != null) continue;           // completed games are not pickable
-    if (!by.has(g.week)) by.set(g.week, []);
-    by.get(g.week).push(g);
+    if (g.p == null) continue;                // a week already played, known only from the schedule
+    let game = g;
+    if (hasStarted(g, now)) {
+      if (!keep || g.week !== keep.week || g.team !== keep.team) continue;
+      if (g.result != null) game = { ...g, p: g.result === 'W' ? 1 : 0 };
+    }
+    if (!by.has(game.week)) by.set(game.week, []);
+    by.get(game.week).push(game);
   }
   return by;
 }
