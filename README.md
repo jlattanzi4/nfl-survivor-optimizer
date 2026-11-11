@@ -56,6 +56,14 @@ Schema in `supabase/schema.sql`; client config in `docs/js/config.js`.
 
 Everything else runs in the browser. There is no app server.
 
+**Data checks.** A scheduled GitHub Action rebuilds the data three times a day.
+Each build is validated before it replaces the published file. A record the
+page couldn't draw, or a file that doesn't add up (pick shares that don't sum
+to one, a team without 17 games, a result that has disappeared), stops the
+build and leaves the last good file in place. A cell SurvivorGrid has written
+in a way the parser doesn't know is skipped and costs only that game. If the
+published data is ever more than 18 hours old, the page says so.
+
 ## Architecture
 
 ```
@@ -66,6 +74,7 @@ pipeline/            Python: fetch + merge sources → docs/data/season.json
   popularity.py      softmax pick-share model for future weeks
   optimizer.py       reference Hungarian path search (parity-tested vs JS)
   simulate.py        reference Monte Carlo pool model (numpy)
+  validate.py        checks a build before it replaces the published file
   build.py           CLI entry point
 docs/                GitHub Pages site (no build step, no framework)
   js/hungarian.js    rectangular Kuhn–Munkres
@@ -74,20 +83,26 @@ docs/                GitHub Pages site (no build step, no framework)
   js/engine.js       candidate generation + ranking (runs in a Web Worker)
   js/leagues.js      league rules: what loads, shared links, merging two devices
   js/sync.js         Supabase sign-in and the account's table
+  js/freshness.js    when the page says its data is old
   js/app.js          UI
 tests/               pytest: parser, odds, optimizer, simulator, JS↔Python parity
 tests/js/            node:test: league rules and sync, against an in-memory account
-.github/workflows/   data refresh 3×/day (commits season.json), tests on push
+scripts/             JS path dump for the parity test; a replay of the validator over every published build
+.github/workflows/   data refresh 3×/day (validates, then commits season.json); lint and tests on push
 ```
 
 ## Run it locally
 
+Needs [uv](https://docs.astral.sh/uv/) and Node 22+.
+
 ```bash
-pip install -r requirements.txt pytest
-python -m pytest -q tests/
-npm test                                    # league and sync rules (Node 22+)
-python -m pipeline.build --no-odds          # or set ODDS_API_KEY for market lines
-python -m http.server 8765 --directory docs # then open http://localhost:8765
+uv sync                                       # Python 3.12+ and the locked dependencies
+uv run pytest -q
+uv run ruff check .
+npm test                                      # the browser-side rules
+uv run python -m pipeline.build --no-odds     # or set ODDS_API_KEY for market lines
+uv run python -m pipeline.validate            # check the data file on its own
+npm run serve                                 # then open http://localhost:8765
 ```
 
 `cp .env.example .env` and add your Odds API key to enable current-week market

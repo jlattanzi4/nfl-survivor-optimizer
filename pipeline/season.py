@@ -6,20 +6,20 @@ is the Tuesday before the season's kickoff Thursday.  Add a row each year.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 TOTAL_WEEKS = 18
 
 # Tuesday 06:00 UTC (≈ 2am ET) before kickoff Thursday, by season.
 WEEK1_TUESDAY: dict[int, datetime] = {
-    2024: datetime(2024, 9, 3, 6, tzinfo=timezone.utc),
-    2025: datetime(2025, 9, 2, 6, tzinfo=timezone.utc),
-    2026: datetime(2026, 9, 8, 6, tzinfo=timezone.utc),   # kickoff Thu Sep 10, 2026
+    2024: datetime(2024, 9, 3, 6, tzinfo=UTC),
+    2025: datetime(2025, 9, 2, 6, tzinfo=UTC),
+    2026: datetime(2026, 9, 8, 6, tzinfo=UTC),   # kickoff Thu Sep 10, 2026
 }
 
 
 def _first_tuesday_of_september(year: int) -> datetime:
-    d = datetime(year, 9, 1, 6, tzinfo=timezone.utc)
+    d = datetime(year, 9, 1, 6, tzinfo=UTC)
     return d + timedelta(days=(1 - d.weekday()) % 7)
 
 
@@ -40,7 +40,7 @@ def week_starts(season: int) -> list[datetime]:
 def week_for(when: datetime, season: int | None = None) -> int:
     """Week number (1–18) a moment falls in; clamps to 1 before kickoff and 18 after."""
     if when.tzinfo is None:
-        when = when.replace(tzinfo=timezone.utc)
+        when = when.replace(tzinfo=UTC)
     season = season or season_for(when)
     delta = when - week1_start(season)
     if delta.days < 0:
@@ -49,4 +49,4 @@ def week_for(when: datetime, season: int | None = None) -> int:
 
 
 def current_week(season: int | None = None) -> int:
-    return week_for(datetime.now(timezone.utc), season)
+    return week_for(datetime.now(UTC), season)

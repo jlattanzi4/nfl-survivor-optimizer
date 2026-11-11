@@ -1,7 +1,8 @@
 import pytest
 
 from pipeline import survivorgrid
-from pipeline.survivorgrid import parse_cell, spread_to_prob
+from pipeline.survivorgrid import parse_cell, parse_html, spread_to_prob
+from tests.conftest import with_cell
 
 
 def test_parses_every_team_and_game(grid_rows):
@@ -48,6 +49,31 @@ def test_bye_is_none():
 def test_garbage_cell_raises():
     with pytest.raises(ValueError):
         parse_cell("??", 1, "LAC")
+
+
+def test_a_clean_page_skips_nothing(grid_html):
+    assert parse_html(grid_html).skipped == []
+
+
+@pytest.mark.parametrize("token,why", [
+    ("C?E", "a cell that isn't in the grammar"),
+    ("XYZ", "a well-formed cell naming a team that doesn't exist"),
+])
+def test_a_cell_that_cannot_be_read_is_skipped_and_recorded(grid_html, token, why):
+    # JAX's first game on the saved page is at home to CLE.
+    grid = parse_html(with_cell(grid_html, "JAX", "CLE<br>", f"{token}<br>"))
+    assert len(grid.rows) == 32, why
+    jax = next(r for r in grid.rows if r.team == "JAX")
+    assert len(jax.cells) == 16
+    assert not any(c.opp == "CLE" for c in jax.cells)
+    assert len(grid.skipped) == 1
+    assert "JAX" in grid.skipped[0] and token in grid.skipped[0]
+
+
+def test_a_row_for_a_team_that_does_not_exist_is_skipped_and_recorded(grid_html):
+    grid = parse_html(grid_html.replace('<td class="teamname">JAX</td>', '<td class="teamname">LON</td>'))
+    assert len(grid.rows) == 31
+    assert len(grid.skipped) == 1 and "LON" in grid.skipped[0]
 
 
 def test_matchups_are_symmetric(grid_rows):

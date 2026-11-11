@@ -5,6 +5,7 @@
  */
 import { hasStarted } from './optimizer.js';
 import { analyze } from './engine.js';
+import { staleNotice } from './freshness.js';
 import { applyOffer, decodeShare, dropAutoDuplicates, encodeShare, makeLeague, merge3, reconcile, sameContent } from './leagues.js';
 import * as sync from './sync.js';
 
@@ -255,6 +256,9 @@ function renderStatus() {
   const lastScored = Math.max(0, ...state.data.games.filter((g) => g.result).map((g) => g.week));
   if (lastScored) parts.push(`scores through wk ${lastScored}`);
   $('#status').innerHTML = parts.join(' · ');
+  const notice = staleNotice(state.data.generated_at);
+  $('#stale').hidden = !notice;
+  $('#staleText').textContent = notice || '';
   $('#footData').textContent = `Data ${new Date(state.data.generated_at).toLocaleString()} · ${state.data.games.length} team-weeks`;
   $('#seasonLabel').textContent = state.data.season;
 }
@@ -849,6 +853,7 @@ async function init() {
   state.week = state.calendarWeek;
   loadPersisted();
   renderStatus();
+  setInterval(renderStatus, 60_000);   // a tab left open keeps an honest "as of", and says so once its lines go stale
   initAccount();
 
   $('#poolSize').addEventListener('change', (e) => { const v = Math.round(Number(e.target.value)); if (v >= 2) { league().pool = v; scheduleRun(); } });

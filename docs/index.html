@@ -31,6 +31,11 @@
     </nav>
   </header>
 
+  <div class="stale" id="stale" role="status" hidden>
+    <span class="stale-tag">Stale lines</span>
+    <span id="staleText"></span>
+  </div>
+
   <!-- Signature: the Gauntlet -->
   <section class="gauntlet" aria-label="Your season">
     <div class="gauntlet-head">
@@ -301,7 +306,14 @@
 
   <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <!-- An exact version with an integrity hash, so the browser refuses the file if the CDN ever serves
+       anything else. supabase.js is the file in the npm package (already minified); jsDelivr generates
+       supabase.min.js on demand, which a hash can't be trusted to keep matching. To upgrade: change the
+       version, then recompute with
+       curl -s <url> | openssl dgst -sha384 -binary | openssl base64 -A -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js"
+          integrity="sha384-uteMfOloLDGt042uDz+xHGF3ym63/WQ6rFq7murQRG8Ih7QrXGEGNtWd8688sb4O"
+          crossorigin="anonymous"></script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>
