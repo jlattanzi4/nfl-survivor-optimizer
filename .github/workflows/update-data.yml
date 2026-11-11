@@ -2,7 +2,10 @@ name: Update season data
 
 on:
   schedule:
-    - cron: "0 */8 * * *"        # three times a day; lines move, SurvivorGrid refreshes Tuesdays
+    # Three times a day; lines move, SurvivorGrid refreshes Tuesdays. Off the hour on purpose:
+    # GitHub delays scheduled runs most at the start of an hour, and at minute 0 these
+    # started a median of 4.7 hours late.
+    - cron: "17 */8 * * *"
   workflow_dispatch:
 
 permissions:
@@ -16,16 +19,19 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      # Pinned to a release: setup-uv publishes no moving major tag.
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.12"
-          cache: pip
-      - run: pip install -r requirements.txt
+          enable-cache: true
+      - run: uv sync --frozen --no-dev
+      # The build validates what it made and exits 1 without writing if it fails,
+      # so a failed run leaves the last good file published and nothing to commit.
       - name: Build season.json
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-        run: python -m pipeline.build
+        run: uv run --no-sync python -m pipeline.build
       - name: Commit if changed
         run: |
           git config user.name "github-actions[bot]"
