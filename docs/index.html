@@ -280,6 +280,25 @@
     </div>
   </div>
 
+  <!-- Offer dialog: a setup from a link, or left in this browser before sign-in -->
+  <div class="picker" id="offerDialog" hidden role="dialog" aria-modal="true" aria-labelledby="offerTitle">
+    <div class="picker-card offer-card">
+      <div class="picker-head">
+        <h3 id="offerTitle">A setup from a link</h3>
+      </div>
+      <p class="muted small" id="offerLead"></p>
+      <div class="offer-summary">
+        <b id="offerName"></b>
+        <span id="offerDetail"></span>
+      </div>
+      <div class="offer-actions">
+        <button type="button" class="primary" id="offerImport">Add as a new league</button>
+        <button type="button" class="ghost" id="offerReplace">Replace</button>
+        <button type="button" class="link" id="offerIgnore">Ignore it</button>
+      </div>
+    </div>
+  </div>
+
   <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>

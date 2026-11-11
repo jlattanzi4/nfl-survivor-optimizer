@@ -5,6 +5,7 @@
  */
 import { hasStarted } from './optimizer.js';
 import { analyze } from './engine.js';
+import { applyOffer, decodeShare, dropAutoDuplicates, encodeShare, makeLeague, merge3, reconcile, sameContent } from './leagues.js';
 import * as sync from './sync.js';
 
 const N_SIMS = 20000;
@@ -49,113 +50,70 @@ const state = {
   calendarWeek: 1,
   leagues: [],         // [{ id, name, pool, lives, fieldStrikes, myStrikes: 'auto'|0|1, used: { week: abbr } }]
   leagueId: null,
+  offers: [],          // [{ league, from: 'link'|'browser' }]: setups waiting for the person to accept or decline
+  account: { user: null, bases: {}, deleted: [] },   // what this browser last agreed with the signed-in account
   selected: null,      // abbr of the selected candidate
   result: null,
   view: 'call',
   showAll: false,
 };
-const newLeague = (over = {}) => ({ id: `L${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: 'My pool', pool: 50, lives: 1, fieldStrikes: 0, myStrikes: 'auto', used: {}, ...over });
 const league = () => state.leagues.find((l) => l.id === state.leagueId) || state.leagues[0];
 
-function loadPersisted() {
-  let saved = {};
-  try { saved = JSON.parse(localStorage.getItem('survivor:v3') || 'null'); } catch { /* ignore */ }
-  if (!saved) {
-    // migrate the single-league v2 shape
-    try {
-      const v2 = JSON.parse(localStorage.getItem('survivor:v2') || 'null');
-      if (v2) saved = { week: v2.week, leagues: [newLeague({ pool: v2.pool || 50, used: v2.used || {} })] };
-    } catch { /* ignore */ }
-  }
-  saved = saved || {};
-  if (Array.isArray(saved.leagues) && saved.leagues.length) {
-    state.leagues = saved.leagues.map((l) => newLeague(l));
-    state.leagueId = saved.leagueId;
-  }
-  if (!state.leagues.length) state.leagues = [newLeague()];
-  if (!league()) state.leagueId = state.leagues[0].id;
-  state.leagueId = league().id;
-  if (Number.isFinite(saved.week) && saved.week >= 1 && saved.week <= 18) state.week = saved.week;
-
-  // A link with a setup in the hash: reuse a matching league, or import it as a new one.
-  // persist() writes our own state into the hash on every save -- don't mistake
-  // our own hash for a shared link on the next load.
-  const h = new URLSearchParams(location.hash.slice(1));
-  let ownHash = false;
-  try { ownHash = !!location.hash && location.hash === localStorage.getItem('survivor:lasthash'); } catch { /* ignore */ }
-  if (h.get('w')) { const w = Number(h.get('w')); if (w >= 1 && w <= 18) state.week = w; }
-  if (!ownHash && (h.has('pool') || h.has('used') || h.has('lives'))) {
-    const incoming = {
-      pool: Math.max(2, Math.round(Number(h.get('pool')) || 50)),
-      lives: Number(h.get('lives')) === 2 ? 2 : 1,
-      fieldStrikes: Math.max(0, Number(h.get('fs')) || 0),
-      myStrikes: !h.has('ms') || h.get('ms') === 'auto' ? 'auto' : Math.min(1, Math.max(0, Number(h.get('ms')) || 0)),
-      used: {},
-    };
-    for (const pair of (h.get('used') || '').split(',').filter(Boolean)) {
-      const [w, t] = pair.split(':');
-      if (state.teams.has(t)) incoming.used[Number(w)] = t;
-    }
-    const same = (l) => l.pool === incoming.pool && l.lives === incoming.lives && l.fieldStrikes === incoming.fieldStrikes
-      && String(l.myStrikes) === String(incoming.myStrikes) && JSON.stringify(l.used) === JSON.stringify(incoming.used);
-    const match = state.leagues.find(same);
-    const fresh = !saved.leagues;              // first visit: the default league is still empty
-    if (match) state.leagueId = match.id;
-    else if (fresh) Object.assign(league(), incoming);
-    else { const L = newLeague({ ...incoming, name: `Shared setup ${state.leagues.length + 1}` }); state.leagues.push(L); state.leagueId = L.id; }
-  }
-  for (const l of state.leagues) for (const [w, t] of Object.entries(l.used)) if (!state.teams.has(t)) delete l.used[w];
-  dedupeSharedLeagues(false);
+const STORE_KEY = 'survivor:v4';
+function readSaved() {
+  const read = (key) => { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } };
+  const v4 = read(STORE_KEY);
+  if (v4) return v4;
+  const v3 = read('survivor:v3');
+  if (v3) return { leagueId: v3.leagueId, leagues: v3.leagues };
+  const v2 = read('survivor:v2');   // the single-league shape
+  if (v2) return { leagues: [{ pool: v2.pool || 50, used: v2.used || {} }] };
+  return null;
 }
-
-const snapshots = new Map();      // league id -> serialized content, to detect edits
-const fingerprint = (l) => { const { updatedAt, ...rest } = l; return JSON.stringify(rest); };
-function seedSnapshots() { snapshots.clear(); for (const l of state.leagues) snapshots.set(l.id, fingerprint(l)); }
 
 /**
- * Remove auto-imported "Shared setup N" leagues that duplicate another league
- * (created by the old hash-import bug). Only removes one when another league
- * has identical settings and contains every pick it has, so nothing the user
- * edited is ever lost. Never removes the last league. Returns removed ids.
+ * Restore this browser's leagues. The rules live in leagues.js (reconcile):
+ * saved leagues come back as saved, the week is the calendar week, and a
+ * setup in the page address is offered, never applied on its own.
  */
-function dedupeSharedLeagues(removeRemote) {
-  const isAuto = (l) => /^Shared setup \d+$/.test(l.name || '');
-  const dupOf = (l) => state.leagues.find((m) => m.id !== l.id && m.pool === l.pool && m.lives === l.lives
-    && m.fieldStrikes === l.fieldStrikes && String(m.myStrikes) === String(l.myStrikes)
-    && Object.entries(l.used || {}).every(([w, t]) => (m.used || {})[w] === t));
-  const removed = [];
-  for (const l of [...state.leagues]) {
-    if (!isAuto(l) || state.leagues.length < 2) continue;
-    const keeper = dupOf(l);
-    if (!keeper) continue;
-    state.leagues = state.leagues.filter((x) => x.id !== l.id);
-    if (state.leagueId === l.id) state.leagueId = keeper.id;
-    snapshots.delete(l.id);
-    removed.push(l.id);
-  }
-  if (removed.length && removeRemote && sync.enabled()) {
-    for (const id of removed) sync.remove(id).catch((e) => console.error('sync remove failed', e));
-  }
-  return removed;
+function loadPersisted() {
+  const saved = readSaved();
+  // Older versions wrote the open league into the address on every change.
+  // An address this browser wrote itself is not a shared link.
+  let ownAddress = false;
+  try { ownAddress = !!location.hash && location.hash === localStorage.getItem('survivor:lasthash'); } catch { /* ignore */ }
+  const incoming = ownAddress ? null : decodeShare(location.hash, (t) => state.teams.has(t));
+  const start = reconcile({ saved, incoming, calendarWeek: state.calendarWeek });
+  const cleaned = dropAutoDuplicates(start);
+
+  state.leagues = cleaned.leagues;
+  state.leagueId = cleaned.leagueId;
+  state.week = start.week;
+  for (const l of state.leagues) for (const [w, t] of Object.entries(l.used)) if (!state.teams.has(t)) delete l.used[w];
+  state.account = {
+    user: saved?.sync?.user || null,
+    bases: saved?.sync?.bases || {},
+    deleted: [...new Set([...(saved?.sync?.deleted || []), ...cleaned.removed])],
+  };
+  state.offers = (saved?.offers || []).map((o) => ({ league: makeLeague(o.league), from: o.from === 'browser' ? 'browser' : 'link' }));
+  if (start.offer && !state.offers.some((o) => sameContent(o.league, start.offer))) state.offers.push({ league: start.offer, from: 'link' });
+
+  // The address no longer carries a league. Clear what a share link or an older version left in it.
+  if (incoming || ownAddress || /^#w=\d+$/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
 }
 
+let savedLeagues = '';   // the leagues as last written, to tell an edit from a re-render
 function persist() {
-  const changed = [];
-  for (const l of state.leagues) {
-    const fp = fingerprint(l);
-    if (snapshots.get(l.id) !== fp) { l.updatedAt = new Date().toISOString(); snapshots.set(l.id, fp); changed.push(l.id); }
-  }
-  if (changed.length) sync.scheduleSave(changed, () => state.leagues);
-  try { localStorage.setItem('survivor:v3', JSON.stringify({ week: state.week, leagueId: state.leagueId, leagues: state.leagues })); } catch { /* ignore */ }
-  const L = league();
-  const used = Object.entries(L.used).filter(([w]) => Number(w) <= state.week);   // includes this week's lock
-  const h = new URLSearchParams();
-  h.set('w', state.week);
-  h.set('pool', L.pool);
-  if (L.lives > 1) { h.set('lives', L.lives); h.set('fs', L.fieldStrikes); h.set('ms', L.myStrikes); }
-  if (used.length) h.set('used', used.map(([w, t]) => `${w}:${t}`).join(','));
-  history.replaceState(null, '', `#${h.toString()}`);
-  try { localStorage.setItem('survivor:lasthash', location.hash); } catch { /* ignore */ }
+  savedLeagues = JSON.stringify(state.leagues);
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify({ leagueId: state.leagueId, leagues: state.leagues, offers: state.offers, sync: state.account }));
+  } catch { /* ignore */ }
+}
+/** Write state to this browser and, if a league changed while signed in, sync it. */
+function save() {
+  const edited = JSON.stringify(state.leagues) !== savedLeagues;
+  persist();
+  if (edited && currentUser) sync.schedule();
 }
 
 const usedList = () => Object.entries(league().used).filter(([w]) => Number(w) < state.week).map(([, t]) => t);
@@ -234,11 +192,12 @@ function runAnalysis(options) {
 
 let runTimer = null;
 function scheduleRun() {
+  save();   // an edit is written down at once; only the re-render waits
   clearTimeout(runTimer);
   runTimer = setTimeout(run, 120);
 }
 async function run() {
-  persist();
+  save();
   renderControls();
   renderGauntlet();
   showLoading(`Running the season ${N_SIMS.toLocaleString()} times…`);
@@ -680,7 +639,7 @@ function closePicker() { $('#picker').hidden = true; }
 let dialogLeagueId = null;   // null = creating
 function openLeagueDialog(id) {
   dialogLeagueId = id;
-  const L = id ? state.leagues.find((l) => l.id === id) : newLeague({ name: '' });
+  const L = id ? state.leagues.find((l) => l.id === id) : { ...makeLeague(), name: '' };
   $('#leagueTitle').textContent = id ? 'Edit league' : 'New league';
   $('#leagueName').value = L.name;
   $('#leaguePool').value = L.pool;
@@ -708,7 +667,7 @@ function saveLeagueDialog(e) {
   if (dialogLeagueId) {
     Object.assign(state.leagues.find((l) => l.id === dialogLeagueId), { name, pool, lives, fieldStrikes, myStrikes: myStrikesV });
   } else {
-    const L = newLeague({ name, pool, lives, fieldStrikes, myStrikes: myStrikesV });
+    const L = makeLeague({ name, pool, lives, fieldStrikes, myStrikes: myStrikesV });
     state.leagues.push(L);
     state.leagueId = L.id;
   }
@@ -720,8 +679,8 @@ function deleteLeague() {
   const L = state.leagues.find((l) => l.id === dialogLeagueId);
   if (!confirm(`Delete "${L.name}" and its recorded picks?`)) return;
   state.leagues = state.leagues.filter((l) => l.id !== dialogLeagueId);
-  snapshots.delete(dialogLeagueId);
-  if (sync.enabled()) sync.remove(dialogLeagueId).catch((err) => console.error(err));
+  // Remembered until the account has been told, so other devices drop it too.
+  if (state.account.user || currentUser) state.account.deleted.push(dialogLeagueId);
   state.leagueId = state.leagues[0].id;
   $('#leagueDialog').hidden = true;
   scheduleRun();
@@ -729,7 +688,6 @@ function deleteLeague() {
 
 /* --------------------------------------------------------------- account */
 let currentUser = null;
-let lastPull = 0;
 function renderAccount() {
   const box = $('#account');
   box.replaceChildren();
@@ -752,30 +710,66 @@ function renderAccount() {
   box.append(out);
 }
 
-async function pullAndMerge(reason) {
-  if (!currentUser) return;
-  try {
-    const { merged, toPush } = await sync.pull(state.leagues);
-    state.leagues = merged.map((l) => newLeague(l));
-    if (!state.leagues.length) state.leagues = [newLeague()];
-    if (!league()) state.leagueId = state.leagues[0].id;
-    state.leagueId = league().id;
-    seedSnapshots();
-    dedupeSharedLeagues(true);
-    await sync.push(state.leagues.filter((l) => toPush.includes(l.id)));
-    lastPull = Date.now();
-    try { localStorage.setItem('survivor:v3', JSON.stringify({ week: state.week, leagueId: state.leagueId, leagues: state.leagues })); } catch { /* ignore */ }
-    renderAccount();
-    if (reason !== 'focus' || toPush.length || merged.length !== state.leagues.length) scheduleRun(); else renderControls();
-  } catch (err) {
-    console.error('sync pull failed', err);
-    renderAccount();
+/** A copy of this browser's leagues for a sync to work from while the person keeps editing. */
+function syncSnapshot() {
+  return { local: state.leagues.map(makeLeague), bases: structuredClone(state.account.bases), deleted: [...state.account.deleted] };
+}
+
+/** Take the result of a sync, keeping anything edited here while it was in flight. */
+function applySync(result, before) {
+  const sentById = new Map(before.local.map((l) => [l.id, l]));
+  const nowById = new Map(state.leagues.map((l) => [l.id, l]));
+  const deletedMeanwhile = state.account.deleted.filter((id) => !before.deleted.includes(id));
+  let editedMeanwhile = deletedMeanwhile.length > 0;
+
+  let leagues = result.leagues.filter((l) => !deletedMeanwhile.includes(l.id)).map((synced) => {
+    const sent = sentById.get(synced.id);
+    const current = nowById.get(synced.id);
+    if (!sent || !current || sameContent(sent, current)) return synced;
+    editedMeanwhile = true;
+    return { id: synced.id, ...merge3(sent, current, synced) };
+  });
+  for (const l of state.leagues) {
+    if (!sentById.has(l.id)) { leagues.push(l); editedMeanwhile = true; }   // created while the sync ran
   }
+  if (!leagues.length) leagues = [makeLeague()];
+
+  const leaguesBefore = JSON.stringify(state.leagues);
+  const cleaned = dropAutoDuplicates({ leagues, leagueId: state.leagueId });
+  state.leagues = cleaned.leagues;
+  state.leagueId = cleaned.leagues.some((l) => l.id === cleaned.leagueId) ? cleaned.leagueId : cleaned.leagues[0].id;
+  state.account = {
+    user: state.account.user,
+    bases: result.bases,
+    deleted: [...new Set([...result.deleted, ...deletedMeanwhile, ...cleaned.removed])],
+  };
+  for (const l of result.offers) {
+    if (!state.offers.some((o) => sameContent(o.league, l))) state.offers.push({ league: l, from: 'browser' });
+  }
+  const changedHere = JSON.stringify(state.leagues) !== leaguesBefore;
+  persist();
+  if (editedMeanwhile || cleaned.removed.length) sync.schedule(0);
+  if (changedHere) { state.selected = null; scheduleRun(); } else renderControls();
+  showNextOffer();
+}
+
+function setUser(user) {
+  const was = currentUser?.id;
+  currentUser = user || null;
+  renderAccount();
+  if (!currentUser || currentUser.id === was) return;
+  $('#authDialog').hidden = true;
+  // What this browser agreed with one account says nothing about another.
+  if (state.account.user !== currentUser.id) {
+    state.account = { user: currentUser.id, bases: {}, deleted: state.account.user ? [] : state.account.deleted };
+  }
+  sync.now();
 }
 
 function initAccount() {
   if (!sync.init()) return;
   sync.onStatus(renderAccount);
+  sync.connect({ read: syncSnapshot, write: applySync });
   $('#authForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const email = $('#authEmail').value.trim();
@@ -793,20 +787,48 @@ function initAccount() {
   });
   $('#authClose').addEventListener('click', () => { $('#authDialog').hidden = true; });
   $('#authDialog').addEventListener('click', (e) => { if (e.target === e.currentTarget) $('#authDialog').hidden = true; });
-  sync.onAuth(async (event, s) => {
-    const was = currentUser?.id;
-    currentUser = s?.user || null;
-    renderAccount();
-    if (currentUser && currentUser.id !== was) { $('#authDialog').hidden = true; await pullAndMerge('sign-in'); }
-  });
-  sync.session().then(async (s) => {
-    currentUser = s?.user || null;
-    renderAccount();
-    if (currentUser) await pullAndMerge('load');
-  });
+  sync.onAuth((event, s) => setUser(s?.user));
+  sync.session().then((s) => setUser(s?.user));
+  // Leaving: send what's waiting. Coming back: pick up what other devices did.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && currentUser && Date.now() - lastPull > 60000) pullAndMerge('focus');
+    if (document.visibilityState === 'hidden') { save(); sync.leave(); }
+    else sync.comeBack();
   });
+  window.addEventListener('pagehide', () => { save(); sync.leave(); });
+  window.addEventListener('online', () => { if (currentUser) sync.now(); });
+}
+
+/* ----------------------------------------------------------------- offers */
+function describeLeague(l) {
+  const picks = Object.entries(l.used);
+  const rules = `${l.pool.toLocaleString()} entries · ${l.lives > 1 ? 'two lives' : 'single elimination'}`;
+  if (!picks.length) return `${rules} · no picks recorded`;
+  return `${rules} · ${picks.length} pick${picks.length === 1 ? '' : 's'}: ${picks.map(([w, t]) => `wk ${w} ${t}`).join(', ')}`;
+}
+function showNextOffer() {
+  const offer = state.offers[0];
+  const box = $('#offerDialog');
+  if (!offer) { box.hidden = true; return; }
+  $('#offerTitle').textContent = offer.from === 'browser' ? 'Picks saved in this browser' : 'A setup from a link';
+  $('#offerLead').textContent = offer.from === 'browser'
+    ? 'This browser had a setup that is not in your account. Nothing has been changed. What should happen to it?'
+    : 'This link carries a setup. Nothing has been changed. What should happen to it?';
+  $('#offerName').textContent = offer.league.name;
+  $('#offerDetail').textContent = describeLeague(offer.league);
+  $('#offerReplace').textContent = `Replace “${league().name}”`;
+  box.hidden = false;
+  $('#offerImport').focus();
+}
+function answerOffer(choice) {
+  const offer = state.offers.shift();
+  if (!offer) return;
+  const next = applyOffer({ leagues: state.leagues, leagueId: state.leagueId }, offer.league, choice);
+  state.leagues = next.leagues;
+  state.leagueId = next.leagueId;
+  if (choice !== 'ignore') state.selected = null;
+  $('#offerDialog').hidden = true;
+  scheduleRun();
+  showNextOffer();
 }
 
 /* ------------------------------------------------------------------ tabs */
@@ -826,7 +848,6 @@ async function init() {
   state.calendarWeek = calendarWeek();
   state.week = state.calendarWeek;
   loadPersisted();
-  seedSnapshots();
   renderStatus();
   initAccount();
 
@@ -847,17 +868,22 @@ async function init() {
   $('#clearUsed').addEventListener('click', () => { league().used = {}; scheduleRun(); });
   $('#copyLink').addEventListener('click', async (e) => {
     const b = e.currentTarget;
-    try { await navigator.clipboard.writeText(location.href); b.textContent = 'Copied'; }
-    catch { b.textContent = 'Copy the address bar'; }
+    try { await navigator.clipboard.writeText(`${location.origin}${location.pathname}${encodeShare(league())}`); b.textContent = 'Copied'; }
+    catch { b.textContent = 'Could not copy'; }
     setTimeout(() => { b.textContent = 'Copy link'; }, 1800);
   });
   $('#pickerClose').addEventListener('click', closePicker);
   $('#pickerClear').addEventListener('click', () => { delete league().used[pickerWeek]; closePicker(); scheduleRun(); });
   $('#picker').addEventListener('click', (e) => { if (e.target === e.currentTarget) closePicker(); });
-  document.addEventListener('keydown', (e) => { if (e.key !== 'Escape') return; if (!$('#picker').hidden) closePicker(); if (!$('#leagueDialog').hidden) closeLeagueDialog(); $('#authDialog').hidden = true; });
+  $('#offerImport').addEventListener('click', () => answerOffer('import'));
+  $('#offerReplace').addEventListener('click', () => answerOffer('replace'));
+  $('#offerIgnore').addEventListener('click', () => answerOffer('ignore'));
+  // Escape closes a dialog. An unanswered offer is kept and asked again next time.
+  document.addEventListener('keydown', (e) => { if (e.key !== 'Escape') return; if (!$('#picker').hidden) closePicker(); if (!$('#leagueDialog').hidden) closeLeagueDialog(); $('#authDialog').hidden = true; $('#offerDialog').hidden = true; });
   for (const b of document.querySelectorAll('.tab')) b.addEventListener('click', () => setView(b.dataset.tab));
 
   run();
+  showNextOffer();
 }
 
 init();

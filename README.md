@@ -37,11 +37,22 @@ elimination, or two lives (an entry is out on its second loss). In two-lives
 mode the simulator tracks strikes for you and for the field, and your own
 strikes are counted automatically from the results of the picks you recorded.
 
-**Sync.** Optional magic-link email sign-in (Supabase Auth) syncs leagues
-across devices. Local storage stays the source of truth; changes are upserted
-to a `survivor_leagues` table protected by row-level security, and remote rows
-are merged in by last edit on sign-in and tab focus. Schema in
-`supabase/schema.sql`; client config in `docs/js/config.js`.
+**Sync.** Optional magic-link email sign-in (Supabase Auth) keeps leagues the
+same on every device. The browser's copy works on its own; once signed in, the
+account is the copy every device agrees with. Each sync reads the account,
+merges this browser's edits into it week by week (a pick recorded on the phone
+and another on the laptop both survive), and writes back only what changed.
+Writes are guarded by a revision, so two devices can't overwrite each other
+unseen, and a deleted league leaves a tombstone so the delete reaches every
+device. Edits are sent when the tab is hidden and picked up when it's shown
+again.
+
+The app never creates a league on its own. A setup arriving in a shared link,
+or found in a browser that signs in to an account with leagues of its own, is
+offered: add it, replace the open league with it, or ignore it.
+
+Rows live in a `survivor_leagues` table protected by row-level security.
+Schema in `supabase/schema.sql`; client config in `docs/js/config.js`.
 
 Everything else runs in the browser. There is no app server.
 
@@ -61,8 +72,11 @@ docs/                GitHub Pages site (no build step, no framework)
   js/optimizer.js    path search
   js/simulate.js     common-random-number pool simulation
   js/engine.js       candidate generation + ranking (runs in a Web Worker)
+  js/leagues.js      league rules: what loads, shared links, merging two devices
+  js/sync.js         Supabase sign-in and the account's table
   js/app.js          UI
 tests/               pytest: parser, odds, optimizer, simulator, JS↔Python parity
+tests/js/            node:test: league rules and sync, against an in-memory account
 .github/workflows/   data refresh 3×/day (commits season.json), tests on push
 ```
 
@@ -71,6 +85,7 @@ tests/               pytest: parser, odds, optimizer, simulator, JS↔Python par
 ```bash
 pip install -r requirements.txt pytest
 python -m pytest -q tests/
+npm test                                    # league and sync rules (Node 22+)
 python -m pipeline.build --no-odds          # or set ODDS_API_KEY for market lines
 python -m http.server 8765 --directory docs # then open http://localhost:8765
 ```
