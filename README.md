@@ -56,7 +56,7 @@ Schema in `supabase/schema.sql`; client config in `docs/js/config.js`.
 
 Everything else runs in the browser. There is no app server.
 
-**Data checks.** A scheduled GitHub Action rebuilds the data three times a day.
+**Data checks.** A scheduled GitHub Action rebuilds the data every four hours.
 Each build is validated before it replaces the published file. A record the
 page couldn't draw, or a file that doesn't add up (pick shares that don't sum
 to one, a team without 17 games, a result that has disappeared), stops the
