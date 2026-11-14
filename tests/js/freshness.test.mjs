@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { STALE_AFTER_HOURS, staleNotice } from '../../docs/js/freshness.js';
+import { REFRESH_EVERY_HOURS, STALE_AFTER_HOURS, staleNotice } from '../../docs/js/freshness.js';
 
 const BUILT = '2026-11-11T19:20:57+00:00';
 const hoursLater = (h) => Date.parse(BUILT) + h * 3600_000;
@@ -20,6 +20,12 @@ test('a refresh that ran hours late still gets no notice', () => {
 test('data older than the limit says how old it is', () => {
   assert.match(staleNotice(BUILT, hoursLater(STALE_AFTER_HOURS + 1)), /19 hours ago/);
   assert.match(staleNotice(BUILT, hoursLater(26)), /26 hours ago/);
+});
+
+test('the notice gives the schedule the workflow runs on', () => {
+  // .github/workflows/update-data.yml: cron "17 */4 * * *"
+  assert.equal(REFRESH_EVERY_HOURS, 4);
+  assert.match(staleNotice(BUILT, hoursLater(26)), /scheduled every 4 hours/);
 });
 
 test('after two days the age is given in days', () => {

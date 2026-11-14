@@ -2,10 +2,13 @@ name: Update season data
 
 on:
   schedule:
-    # Three times a day; lines move, SurvivorGrid refreshes Tuesdays. Off the hour on purpose:
-    # GitHub delays scheduled runs most at the start of an hour, and at minute 0 these
-    # started a median of 4.7 hours late.
-    - cron: "17 */8 * * *"
+    # Every four hours; lines move, SurvivorGrid refreshes Tuesdays. GitHub starts scheduled
+    # runs late and skips some. On an 8-hour schedule about two ran a day, with gaps up to
+    # 14 hours, and moving off the hour did not help (median start 4.7 hours late at minute
+    # 0, 6.4 at minute 17). More slots are the lever that is ours: a skipped run now costs
+    # 4 hours, not 8. Each run is one Odds API credit, so six a day stay well inside the
+    # 500 a month.
+    - cron: "17 */4 * * *"
   workflow_dispatch:
 
 permissions:
